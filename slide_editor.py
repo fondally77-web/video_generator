@@ -37,9 +37,70 @@ LAYOUT_KEYS   = [l[0] for l in LAYOUTS]
 LAYOUT_LABELS = {l[0]: f"{l[1]}  —  {l[2]}" for l in LAYOUTS}
 LAYOUT_OPTIONS = [LAYOUT_LABELS[k] for k in LAYOUT_KEYS]
 DEFAULT_JSON = Path("output/segments_with_slides.json")
+OVERRIDES_FILE = Path("config_overrides.json")
 
 WHISPER_URL  = "http://127.0.0.1:8000"
 VOICEVOX_URL = "http://127.0.0.1:50021"
+
+
+# ═══════════════════════════════════════════════════════
+#  ビジュアル設定（config_overrides.json から動的に読み込み）
+# ═══════════════════════════════════════════════════════
+
+VIEW_DEFAULTS = {
+    "TITLE_SCALE": 1.0,
+    "LAYOUT_SUB_SCALES":     {k: 1.0 for k in LAYOUT_KEYS},
+    "LAYOUT_ITEM_SCALES":    {k: 1.0 for k in LAYOUT_KEYS},
+    "LAYOUT_PADDING_SCALES": {k: 1.0 for k in LAYOUT_KEYS},
+    "SHOW_TITLE_BRAND": False,
+    "BRAND_TEXT": "NotebookLM",
+    "TEXT_COLOR_PRIMARY": "#111111",
+    "TEXT_COLOR_SUB":     "#888888",
+    "TEXT_COLOR_ACCENT":  "#FBCB3E",
+    "BACKGROUND_COLOR":   "#FFFFFF",
+}
+
+
+def _load_view_settings() -> dict:
+    """config_overrides.json から表示用の設定だけを取り出す。
+    ファイルが無い／読めない場合はデフォルトを返す。
+    `_PREVIEW_OVERRIDE`（ライブプレビュー用）が設定されていれば最後にマージする。"""
+    settings = {k: (v.copy() if isinstance(v, dict) else v) for k, v in VIEW_DEFAULTS.items()}
+    if OVERRIDES_FILE.exists():
+        try:
+            data = json.loads(OVERRIDES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = None
+        if data:
+            for key in settings:
+                if key in data:
+                    if isinstance(settings[key], dict) and isinstance(data[key], dict):
+                        settings[key].update(data[key])
+                    else:
+                        settings[key] = data[key]
+    # ライブプレビュー用の一時オーバーライドを最後に適用
+    if _PREVIEW_OVERRIDE:
+        for key, val in _PREVIEW_OVERRIDE.items():
+            if isinstance(settings.get(key), dict) and isinstance(val, dict):
+                settings[key] = {**settings[key], **val}
+            else:
+                settings[key] = val
+    return settings
+
+
+# ライブプレビュー時のみセットされる一時オーバーライド（dict or None）
+_PREVIEW_OVERRIDE: dict | None = None
+
+
+def _render_with_overrides(seg: dict, overrides: dict, show_progress_bar: bool = False) -> str:
+    """一時的に view settings を上書きして HTML をレンダリング（保存せずに反映）"""
+    global _PREVIEW_OVERRIDE
+    prev = _PREVIEW_OVERRIDE
+    _PREVIEW_OVERRIDE = overrides
+    try:
+        return render_preview_html(seg, show_progress_bar=show_progress_bar)
+    finally:
+        _PREVIEW_OVERRIDE = prev
 
 
 # ═══════════════════════════════════════════════════════
@@ -139,13 +200,33 @@ def _layout_fs(text: str, max_px: float, min_px: float,
     return _auto_fs(text, max_px * extra_scale, min_px * extra_scale)
 
 
-def _get_scales(seg: dict) -> tuple[float, float, float]:
-    """seg から title / sub / item スケールを取得（Template Editor プレビュー用）"""
+def _get_scales(seg: dict, settings: dict | None = None) -> tuple[float, float, float, float]:
+    """seg / settings から (title, sub, item, padding) スケールを取得。
+    seg に "_title_scale" 等があればそれを優先（Template Editor のライブプレビュー用）、
+    無ければ settings（保存済みオーバーライド）から取得する。"""
+    s = settings or _load_view_settings()
+    layout = seg.get("slide_layout", "feature")
+    ts = seg.get("_title_scale",   s.get("TITLE_SCALE", 1.0))
+    ss = seg.get("_sub_scale",     s.get("LAYOUT_SUB_SCALES",     {}).get(layout, 1.0))
+    ist = seg.get("_item_scale",   s.get("LAYOUT_ITEM_SCALES",    {}).get(layout, 1.0))
+    pad = seg.get("_pad_scale",    s.get("LAYOUT_PADDING_SCALES", {}).get(layout, 1.0))
+    return float(ts), float(ss), float(ist), float(pad)
+
+
+def _get_colors(settings: dict | None = None) -> tuple[str, str, str, str]:
+    """(primary, sub, accent, background) を返す"""
+    s = settings or _load_view_settings()
     return (
-        seg.get("_title_scale", 1.0),
-        seg.get("_sub_scale", 1.0),
-        seg.get("_item_scale", 1.0),
+        s.get("TEXT_COLOR_PRIMARY", "#111111"),
+        s.get("TEXT_COLOR_SUB",     "#888888"),
+        s.get("TEXT_COLOR_ACCENT",  "#FBCB3E"),
+        s.get("BACKGROUND_COLOR",   "#FFFFFF"),
     )
+
+
+def _pad(base_pct: float, scale: float) -> str:
+    """元のパーセント余白に scale を掛けた CSS 値を返す（最低0%）"""
+    return f"{max(0.0, base_pct * scale):.2f}%"
 
 
 def _format_speaker_runs(seg: dict) -> str:
@@ -160,53 +241,63 @@ def _format_speaker_runs(seg: dict) -> str:
     return "<br/>".join(formatted)
 
 
-def _ycard(inner_html: str) -> str:
+def _ycard(inner_html: str, accent: str = "#FBCB3E", primary: str = "#111111") -> str:
     return f"""<div class="ycard">
-      <div class="ycard-shadow"></div>
-      <div class="ycard-body">{inner_html}</div>
+      <div class="ycard-shadow" style="background:{accent};border-color:{primary}"></div>
+      <div class="ycard-body" style="border-color:{primary}">{inner_html}</div>
     </div>"""
 
 
 def _render_title(seg: dict) -> str:
-    ts, ss, _ = _get_scales(seg)
+    s = _load_view_settings()
+    ts, ss, _, pad = _get_scales(seg, s)
+    primary, sub_color, accent, _bg = _get_colors(s)
     fs = _layout_fs(seg.get("slide_title", ""), 5.2, 2.8, ts)
     sub = seg.get("slide_sub", "")
     sub_fs = round(1.8 * ss, 2)
-    sub_html = f'<div style="font-size:{sub_fs}vw;color:#888;margin-top:12px">{sub}</div>' if sub else ""
+    sub_html = f'<div style="font-size:{sub_fs}vw;color:{sub_color};margin-top:12px">{sub}</div>' if sub else ""
+    show_brand = s.get("SHOW_TITLE_BRAND", False)
+    brand_text = s.get("BRAND_TEXT", "NotebookLM")
+    brand_html = (
+        f'<div style="font-size:1.2vw;font-weight:300;color:{sub_color};letter-spacing:0.2em;'
+        f'margin-bottom:10px">{brand_text}</div>'
+        if show_brand and brand_text else ""
+    )
     return f"""{GRID_SVG}
     <div style="position:absolute;inset:0;display:flex;flex-direction:column;
-                align-items:center;justify-content:center;text-align:center;padding:0 8%">
-      <div style="font-size:1.2vw;font-weight:300;color:#888;letter-spacing:0.2em;margin-bottom:10px">
-        NotebookLM</div>
-      <div style="width:15vw;height:1.5px;background:#111;opacity:.5;margin-bottom:16px"></div>
-      <div style="font-size:{fs}vw;font-weight:900;color:#111;line-height:1.3">
+                align-items:center;justify-content:center;text-align:center;padding:0 {_pad(8.0, pad)}">
+      {brand_html}
+      <div style="width:15vw;height:1.5px;background:{primary};opacity:.5;margin-bottom:16px"></div>
+      <div style="font-size:{fs}vw;font-weight:900;color:{primary};line-height:1.3">
         {seg.get("slide_title","")}</div>
       {sub_html}
-      <div style="width:15vw;height:1.5px;background:#111;opacity:.5;margin-top:16px"></div>
+      <div style="width:15vw;height:1.5px;background:{primary};opacity:.5;margin-top:16px"></div>
     </div>{BAR_HTML}"""
 
 
 def _render_question(seg: dict) -> str:
-    ts, ss, ist = _get_scales(seg)
+    s = _load_view_settings()
+    ts, ss, ist, pad = _get_scales(seg, s)
+    primary, sub_color, accent, _bg = _get_colors(s)
     fs = _layout_fs(seg.get("slide_title", ""), 4.2, 2.4, ts)
     icon = seg.get("slide_icon", "") or "？"
     sub = seg.get("slide_sub", "")
-    sub_html = f'<div style="font-size:{fs*0.45*ss:.1f}vw;color:#888;margin-top:10px">{sub}</div>' if sub else ""
+    sub_html = f'<div style="font-size:{fs*0.45*ss:.1f}vw;color:{sub_color};margin-top:10px">{sub}</div>' if sub else ""
     items = seg.get("slide_items", [])
     items_html = ""
     if items:
         tags = "".join(
-            f'<span style="background:#FEF3C0;border:1.5px solid #FBCB3E;border-radius:8px;'
-            f'padding:3px 12px;font-size:{fs*0.35*ist:.1f}vw;font-weight:700;color:#111">{it}</span>'
+            f'<span style="background:#FEF3C0;border:1.5px solid {accent};border-radius:8px;'
+            f'padding:3px 12px;font-size:{fs*0.35*ist:.1f}vw;font-weight:700;color:{primary}">{it}</span>'
             for it in items[:4]
         )
         items_html = f'<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">{tags}</div>'
     return f"""{GRID_SVG}
     <div style="position:absolute;top:50%;left:55%;transform:translate(-40%,-50%);
-                font-size:32vw;font-weight:900;color:#FBCB3E;opacity:.45;line-height:1">
+                font-size:32vw;font-weight:900;color:{accent};opacity:.45;line-height:1">
       {icon}</div>
-    <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 7%">
-      <div style="font-size:{fs}vw;font-weight:900;color:#111;line-height:1.4;max-width:80%">
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 {_pad(7.0, pad)}">
+      <div style="font-size:{fs}vw;font-weight:900;color:{primary};line-height:1.4;max-width:80%">
         {seg.get("slide_title","")}</div>
       {sub_html}
       {items_html}
@@ -214,19 +305,21 @@ def _render_question(seg: dict) -> str:
 
 
 def _render_section(seg: dict) -> str:
-    ts, ss, _ = _get_scales(seg)
+    s = _load_view_settings()
+    ts, ss, _, pad = _get_scales(seg, s)
+    primary, sub_color, accent, _bg = _get_colors(s)
     fs = _layout_fs(seg.get("slide_title", ""), 4.0, 2.2, ts)
     num = seg.get("slide_number", "") or "1"
     sub = seg.get("slide_sub", "")
     sub_fs = round(1.6 * ss, 2)
-    sub_html = f'<div style="font-size:{sub_fs}vw;color:#888;margin-top:8px">{sub}</div>' if sub else ""
-    return f"""<div style="position:absolute;inset:0;background:#FBCB3E"></div>
-    <div style="position:absolute;inset:0;display:flex;align-items:center;padding:0 5%;gap:3%">
+    sub_html = f'<div style="font-size:{sub_fs}vw;color:{sub_color};margin-top:8px">{sub}</div>' if sub else ""
+    return f"""<div style="position:absolute;inset:0;background:{accent}"></div>
+    <div style="position:absolute;inset:0;display:flex;align-items:center;padding:0 {_pad(5.0, pad)};gap:3%">
       <div style="font-size:18vw;font-weight:900;color:#fff;line-height:1;
-                  -webkit-text-stroke:3px #111">{num}</div>
+                  -webkit-text-stroke:3px {primary}">{num}</div>
       <div style="flex:1">
-        <div style="background:#fff;border-radius:16px;border:2.5px solid #111;padding:24px 30px">
-          <div style="font-size:{fs}vw;font-weight:900;color:#111;line-height:1.3">
+        <div style="background:#fff;border-radius:16px;border:2.5px solid {primary};padding:24px 30px">
+          <div style="font-size:{fs}vw;font-weight:900;color:{primary};line-height:1.3">
             {seg.get("slide_title","")}</div>
           {sub_html}
         </div>
@@ -235,34 +328,38 @@ def _render_section(seg: dict) -> str:
 
 
 def _render_feature(seg: dict) -> str:
-    ts, ss, ist = _get_scales(seg)
+    s = _load_view_settings()
+    ts, ss, ist, pad = _get_scales(seg, s)
+    primary, sub_color, accent, _bg = _get_colors(s)
     fs = _layout_fs(seg.get("slide_title", ""), 4.2, 2.4, ts)
     sub_fs = max(1.4, round(fs * 0.45 * ss, 1))
     item_fs = max(1.4, round(fs * 0.45 * ist, 1))
     icon = seg.get("slide_icon", "")
     icon_html = f'<div class="icon">{icon}</div>' if icon else ""
     sub = seg.get("slide_sub", "")
-    sub_html = f'<div style="font-size:{sub_fs}vw;color:#111;line-height:1.7;margin-top:4px">{sub}</div>' if sub else ""
+    sub_html = f'<div style="font-size:{sub_fs}vw;color:{primary};line-height:1.7;margin-top:4px">{sub}</div>' if sub else ""
     items = seg.get("slide_items", [])
     items_html = "".join(
         f'<div style="display:flex;gap:8px;margin-top:6px">'
-        f'<span style="color:#FBCB3E;font-weight:900;font-size:{item_fs}vw">•</span>'
-        f'<span style="font-size:{item_fs}vw;color:#111">{it}</span></div>'
+        f'<span style="color:{accent};font-weight:900;font-size:{item_fs}vw">•</span>'
+        f'<span style="font-size:{item_fs}vw;color:{primary}">{it}</span></div>'
         for it in items
     )
     inner = f"""{icon_html}
-      <div style="font-size:{fs}vw;font-weight:900;color:#111;line-height:1.3;margin-bottom:8px">
+      <div style="font-size:{fs}vw;font-weight:900;color:{primary};line-height:1.3;margin-bottom:8px">
         {seg.get("slide_title","")}</div>
       {sub_html}{items_html}"""
     return f"""{GRID_SVG}
     <div style="position:absolute;inset:0;display:flex;align-items:center;
-                justify-content:center;padding:4% 6%">
-      <div style="width:100%;max-width:90%">{_ycard(inner)}</div>
+                justify-content:center;padding:{_pad(4.0, pad)} {_pad(6.0, pad)}">
+      <div style="width:100%;max-width:90%">{_ycard(inner, accent, primary)}</div>
     </div>{BAR_HTML}"""
 
 
 def _render_split(seg: dict) -> str:
-    ts, _, ist = _get_scales(seg)
+    s = _load_view_settings()
+    ts, _, ist, pad = _get_scales(seg, s)
+    primary, _sub_color, accent, _bg = _get_colors(s)
     items = seg.get("slide_items", [])
     if len(items) < 2:
         items = [seg.get("slide_title", ""), seg.get("slide_sub", "") or ""]
@@ -272,18 +369,20 @@ def _render_split(seg: dict) -> str:
     cards = ""
     for idx, it in enumerate(items[:2]):
         inner = (f'<div style="font-size:2.8vw;margin-bottom:6px">{icons[idx]}</div>'
-                 f'<div style="font-size:{i_fs}vw;font-weight:700;color:#111;line-height:1.6">{it}</div>')
-        cards += f'<div style="flex:1">{_ycard(inner)}</div>'
+                 f'<div style="font-size:{i_fs}vw;font-weight:700;color:{primary};line-height:1.6">{it}</div>')
+        cards += f'<div style="flex:1">{_ycard(inner, accent, primary)}</div>'
     return f"""{GRID_SVG}
-    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:4% 5%">
-      <div style="font-size:{h_fs}vw;font-weight:700;color:#111;margin-bottom:20px">
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:{_pad(4.0, pad)} {_pad(5.0, pad)}">
+      <div style="font-size:{h_fs}vw;font-weight:700;color:{primary};margin-bottom:20px">
         {seg.get("slide_title","")}</div>
       <div style="display:flex;gap:24px;flex:1;align-items:stretch">{cards}</div>
     </div>{BAR_HTML}"""
 
 
 def _render_flow(seg: dict) -> str:
-    ts, _, ist = _get_scales(seg)
+    s = _load_view_settings()
+    ts, _, ist, pad = _get_scales(seg, s)
+    primary, _sub_color, accent, _bg = _get_colors(s)
     items = seg.get("slide_items", [])
     if len(items) < 2:
         items = [seg.get("slide_title", ""), "確認", "完了"]
@@ -291,15 +390,15 @@ def _render_flow(seg: dict) -> str:
     i_fs = _layout_fs(items[0], 1.8, 1.2, ist)
     steps = ""
     for idx, it in enumerate(items[:3]):
-        steps += (f'<div style="background:#fff;border-radius:10px;border:1.5px solid #111;'
+        steps += (f'<div style="background:#fff;border-radius:10px;border:1.5px solid {primary};'
                   f'padding:16px 18px;flex:1;min-height:80px">'
-                  f'<div style="font-size:{i_fs}vw;font-weight:700;color:#111;line-height:1.5">{it}</div>'
+                  f'<div style="font-size:{i_fs}vw;font-weight:700;color:{primary};line-height:1.5">{it}</div>'
                   f'</div>')
         if idx < min(len(items), 3) - 1:
-            steps += '<div style="color:#FBCB3E;font-size:2.8vw;font-weight:900;display:flex;align-items:center">→</div>'
+            steps += f'<div style="color:{accent};font-size:2.8vw;font-weight:900;display:flex;align-items:center">→</div>'
     return f"""{GRID_SVG}
-    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:3% 5%">
-      <div style="font-size:{h_fs}vw;font-weight:700;color:#111;margin-bottom:18px">
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:{_pad(3.0, pad)} {_pad(5.0, pad)}">
+      <div style="font-size:{h_fs}vw;font-weight:700;color:{primary};margin-bottom:18px">
         {seg.get("slide_title","")}</div>
       <div style="flex:1;display:flex;align-items:center;background:#FEF3C0;
                   border-radius:14px;padding:20px 30px;gap:12px">{steps}</div>
@@ -307,14 +406,16 @@ def _render_flow(seg: dict) -> str:
 
 
 def _render_timeline(seg: dict) -> str:
-    ts, _, ist = _get_scales(seg)
+    s = _load_view_settings()
+    ts, _, ist, pad = _get_scales(seg, s)
+    primary, sub_color, accent, _bg = _get_colors(s)
     items = seg.get("slide_items", [])
     if len(items) < 2:
         items = ["2019年: 開始", "2025年: 移行", "2027年: 完全適用"]
     h_fs = _layout_fs(seg.get("slide_title", ""), 2.6, 1.6, ts)
     n = min(len(items), 4)
     label_fs = round(1.9 * ist, 2)
-    desc_fs  = round(1.1 * ist, 2)
+    desc_fs  = round(1.7 * ist, 2)
     dots = ""
     for idx, it in enumerate(items[:n]):
         parts = it.split(":", 1) if ":" in it else it.split("：", 1) if "：" in it else [it, ""]
@@ -322,26 +423,28 @@ def _render_timeline(seg: dict) -> str:
         desc  = parts[1].strip() if len(parts) > 1 else ""
         pct   = 10 + idx * (80 / max(n - 1, 1))
         dots += f"""<div style="position:absolute;top:14px;left:{pct}%;transform:translateX(-50%);
-                     width:12px;height:12px;border-radius:50%;background:#FBCB3E;
-                     border:2px solid #111"></div>
+                     width:12px;height:12px;border-radius:50%;background:{accent};
+                     border:2px solid {primary}"></div>
         <div style="position:absolute;top:36px;left:{pct}%;transform:translateX(-50%);text-align:center;width:22%">
-          <div style="font-size:{label_fs}vw;font-weight:900;color:#111;border:1.5px solid #111;
+          <div style="font-size:{label_fs}vw;font-weight:900;color:{primary};border:1.5px solid {primary};
                       border-radius:6px;padding:3px 10px;display:inline-block;background:#fff">{label}</div>
-          <div style="font-size:{desc_fs}vw;color:#888;margin-top:4px">{desc}</div>
+          <div style="font-size:{desc_fs}vw;color:{sub_color};margin-top:6px;line-height:1.4">{desc}</div>
         </div>"""
     return f"""{GRID_SVG}
-    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:4% 5%">
-      <div style="font-size:{h_fs}vw;font-weight:700;color:#111;margin-bottom:5vw">
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:{_pad(4.0, pad)} {_pad(5.0, pad)}">
+      <div style="font-size:{h_fs}vw;font-weight:700;color:{primary};margin-bottom:5vw">
         {seg.get("slide_title","")}</div>
       <div style="position:relative;height:40%">
-        <div style="position:absolute;top:19px;left:5%;width:90%;height:2px;background:#FBCB3E"></div>
+        <div style="position:absolute;top:19px;left:5%;width:90%;height:2px;background:{accent}"></div>
         {dots}
       </div>
     </div>{BAR_HTML}"""
 
 
 def _render_bullets(seg: dict) -> str:
-    ts, _, ist = _get_scales(seg)
+    s = _load_view_settings()
+    ts, _, ist, pad = _get_scales(seg, s)
+    primary, _sub_color, _accent, _bg = _get_colors(s)
     items = seg.get("slide_items", [])
     if not items:
         items = [seg.get("slide_sub", "")] if seg.get("slide_sub") else []
@@ -350,12 +453,12 @@ def _render_bullets(seg: dict) -> str:
     bullets = ""
     for it in items[:4]:
         bullets += (f'<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">'
-                    f'<div style="width:8px;height:8px;border-radius:50%;background:#111;'
+                    f'<div style="width:8px;height:8px;border-radius:50%;background:{primary};'
                     f'margin-top:{i_fs*0.55:.1f}vw;flex-shrink:0"></div>'
-                    f'<div style="font-size:{i_fs}vw;color:#111;line-height:1.7">{it}</div></div>')
+                    f'<div style="font-size:{i_fs}vw;color:{primary};line-height:1.7">{it}</div></div>')
     return f"""{GRID_SVG}
-    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:5% 6%">
-      <div style="font-size:{h_fs}vw;font-weight:900;color:#111;margin-bottom:28px;line-height:1.3">
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:{_pad(5.0, pad)} {_pad(6.0, pad)}">
+      <div style="font-size:{h_fs}vw;font-weight:900;color:{primary};margin-bottom:28px;line-height:1.3">
         {seg.get("slide_title","")}</div>
       <div style="display:flex;flex-direction:column;gap:4px">{bullets}</div>
     </div>{BAR_HTML}"""
@@ -365,7 +468,9 @@ _CARD_NUM_RE = re.compile(r'^\d+[:：]\s*')
 
 
 def _render_cards(seg: dict) -> str:
-    ts, _, ist = _get_scales(seg)
+    s = _load_view_settings()
+    ts, _, ist, pad = _get_scales(seg, s)
+    primary, _sub_color, _accent, _bg = _get_colors(s)
     items = seg.get("slide_items", [])
     if len(items) < 3:
         return _render_feature(seg)
@@ -386,11 +491,11 @@ def _render_cards(seg: dict) -> str:
         cards += (f'<div style="width:calc(33.3% - 12px)">'
                   f'<div style="background:{bg};border-radius:14px;border:2px solid {border};padding:16px 14px;min-height:80px">'
                   f'<div style="font-size:2.4vw;font-weight:900;color:{border};opacity:.7;margin-bottom:6px">{num}</div>'
-                  f'<div style="font-size:{i_fs}vw;font-weight:700;color:#111;line-height:1.5">{title_part}</div>'
+                  f'<div style="font-size:{i_fs}vw;font-weight:700;color:{primary};line-height:1.5">{title_part}</div>'
                   f'{desc_html}</div></div>')
     return f"""{GRID_SVG}
-    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:4% 5%">
-      <div style="font-size:{h_fs}vw;font-weight:900;color:#111;margin-bottom:16px;line-height:1.3">
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;padding:{_pad(4.0, pad)} {_pad(5.0, pad)}">
+      <div style="font-size:{h_fs}vw;font-weight:900;color:{primary};margin-bottom:16px;line-height:1.3">
         {seg.get("slide_icon","")} {seg.get("slide_title","")}</div>
       <div style="display:flex;flex-wrap:wrap;gap:14px;flex:1;align-content:flex-start">
         {cards}</div>
@@ -424,6 +529,8 @@ def render_preview_html(seg: dict, show_progress_bar: bool = True) -> str:
     if not show_progress_bar:
         body = body.replace(BAR_HTML, "")
 
+    _, _, _, bg = _get_colors()
+
     return (
         f"<html><head><style>{PREVIEW_CSS}"
         f"*{{margin:0;padding:0;box-sizing:border-box;}}"
@@ -432,6 +539,7 @@ def render_preview_html(seg: dict, show_progress_bar: bool = True) -> str:
         f"align-items:center;justify-content:center;}}"
         f"#scale-wrap{{width:1920px;height:1080px;flex:0 0 auto;"
         f"transform-origin:center center;}}"
+        f".slide{{background:{bg} !important;}}"
         f"</style></head>"
         f'<body><div id="preview-root">'
         f'<div id="scale-wrap"><div class="slide">{body}</div></div>'
@@ -808,7 +916,7 @@ if mode == "Template Editor":
     st.title("🎛️ Template Editor")
     st.caption("レイアウトごとのデザイン、VOICEVOX、動画出力の設定を管理します。")
 
-    _OVERRIDES_FILE = Path("config_overrides.json")
+    _OVERRIDES_FILE = OVERRIDES_FILE
 
     # プライマリボタンを黄色アクセントに（タブ・保存ボタン共通）
     st.markdown("""
@@ -875,19 +983,31 @@ if mode == "Template Editor":
                 "B": {"speedScale": 1.10, "intonationScale": 1.5, "pitchScale": 0.02},
             },
             "VIDEO_FPS": 30, "VIDEO_WIDTH": 1920, "VIDEO_HEIGHT": 1080,
-            "BACKGROUND_COLOR": "#FFFFFF", "FONT_COLOR": "#000000",
-            "HIGHLIGHT_COLOR": "#000000", "FONT_SIZE": 64,
-            "LAYOUT_TITLE_SCALES": {k: 1.0 for k in LAYOUT_KEYS},
-            "LAYOUT_SUB_SCALES":   {k: 1.0 for k in LAYOUT_KEYS},
-            "LAYOUT_ITEM_SCALES":  {k: 1.0 for k in LAYOUT_KEYS},
+            "BACKGROUND_COLOR":     "#FFFFFF",
+            "TEXT_COLOR_PRIMARY":   "#111111",
+            "TEXT_COLOR_SUB":       "#888888",
+            "TEXT_COLOR_ACCENT":    "#FBCB3E",
+            # 互換: 旧キー
+            "FONT_COLOR": "#000000", "HIGHLIGHT_COLOR": "#000000", "FONT_SIZE": 64,
+            "TITLE_SCALE":           1.0,
+            "LAYOUT_SUB_SCALES":     {k: 1.0 for k in LAYOUT_KEYS},
+            "LAYOUT_ITEM_SCALES":    {k: 1.0 for k in LAYOUT_KEYS},
+            "LAYOUT_PADDING_SCALES": {k: 1.0 for k in LAYOUT_KEYS},
+            "SHOW_TITLE_BRAND":      False,
+            "BRAND_TEXT":            "NotebookLM",
             "SHOW_SUBTITLE": False,
         }
         if _OVERRIDES_FILE.exists():
             try:
                 overrides = json.loads(_OVERRIDES_FILE.read_text(encoding="utf-8"))
-                # 互換性: 旧 LAYOUT_FONT_SCALES はファイルには残すが挙動には反映しない
+                # 互換性: 旧 LAYOUT_FONT_SCALES / LAYOUT_TITLE_SCALES はファイルに残すが挙動には反映しない
                 overrides.pop("LAYOUT_FONT_SCALES", None)
-                defaults.update(overrides)
+                # マージ（dict はキー単位で上書き）
+                for k, v in overrides.items():
+                    if isinstance(defaults.get(k), dict) and isinstance(v, dict):
+                        defaults[k] = {**defaults[k], **v}
+                    else:
+                        defaults[k] = v
             except Exception:
                 pass
         return defaults
@@ -943,6 +1063,60 @@ if mode == "Template Editor":
     #  レイアウト編集
     # ═════════════════════════════════════════════════
     if tpl_section == "🎨 レイアウト":
+        # ── 全体共通設定 ─────────────────────────────────
+        with st.expander("🌐 全体共通設定（タイトル倍率・色・ブランド）", expanded=True):
+            gts_key = "_tpl_global_title_scale"
+            if gts_key not in st.session_state:
+                st.session_state[gts_key] = float(cfg.get("TITLE_SCALE", 1.0))
+            gc1, gc2 = st.columns([2, 1])
+            gc1.slider("タイトル倍率（全レイアウト共通）", 0.5, 2.0, step=0.05, key=gts_key)
+            gc2.metric("現在値", f"{st.session_state[gts_key]:.2f}×")
+
+            cc1, cc2, cc3, cc4 = st.columns(4)
+            tp_key, tsub_key, tac_key, bg_key = (
+                "_tpl_color_primary", "_tpl_color_sub",
+                "_tpl_color_accent",  "_tpl_color_bg",
+            )
+            if tp_key not in st.session_state:
+                st.session_state[tp_key] = cfg.get("TEXT_COLOR_PRIMARY", "#111111")
+            if tsub_key not in st.session_state:
+                st.session_state[tsub_key] = cfg.get("TEXT_COLOR_SUB", "#888888")
+            if tac_key not in st.session_state:
+                st.session_state[tac_key] = cfg.get("TEXT_COLOR_ACCENT", "#FBCB3E")
+            if bg_key not in st.session_state:
+                st.session_state[bg_key] = cfg.get("BACKGROUND_COLOR", "#FFFFFF")
+            cc1.color_picker("本文カラー", key=tp_key)
+            cc2.color_picker("サブカラー", key=tsub_key)
+            cc3.color_picker("アクセント", key=tac_key)
+            cc4.color_picker("背景",       key=bg_key)
+
+            br1, br2 = st.columns([1, 2])
+            sb_key, bt_key = "_tpl_show_brand", "_tpl_brand_text"
+            if sb_key not in st.session_state:
+                st.session_state[sb_key] = bool(cfg.get("SHOW_TITLE_BRAND", False))
+            if bt_key not in st.session_state:
+                st.session_state[bt_key] = cfg.get("BRAND_TEXT", "NotebookLM")
+            br1.checkbox("Title スライドにブランド名を表示", key=sb_key)
+            br2.text_input("ブランド名", key=bt_key,
+                            disabled=not st.session_state[sb_key])
+
+            if st.button("💾 全体共通設定を保存", use_container_width=True, type="primary",
+                         key="save_global_settings"):
+                ok = _save_overrides({
+                    "TITLE_SCALE":         float(st.session_state[gts_key]),
+                    "TEXT_COLOR_PRIMARY":  st.session_state[tp_key],
+                    "TEXT_COLOR_SUB":      st.session_state[tsub_key],
+                    "TEXT_COLOR_ACCENT":   st.session_state[tac_key],
+                    "BACKGROUND_COLOR":    st.session_state[bg_key],
+                    "SHOW_TITLE_BRAND":    bool(st.session_state[sb_key]),
+                    "BRAND_TEXT":          st.session_state[bt_key],
+                })
+                if ok:
+                    st.success("✅ 全体共通設定を保存しました（全プレビューに即反映）")
+                    st.rerun()
+
+        st.divider()
+
         # レイアウトタブ
         tab_cols = st.columns(len(LAYOUTS))
         if "tpl_layout" not in st.session_state:
@@ -961,40 +1135,42 @@ if mode == "Template Editor":
         defaults = _DUMMY_DEFAULTS.get(layout_key,
                                         {"title": "サンプル", "sub": "", "items": [], "icon": ""})
 
-        # 調整対象トグルの選択肢を決定
-        target_options = ["タイトル"]
+        # 調整対象トグルの選択肢を決定（タイトルは全体共通へ移動）
+        target_options = ["余白"]
         if layout_key in _HAS_SUB:
             target_options.append("サブ")
         if layout_key in _HAS_ITEMS:
             target_options.append("項目")
 
         # スケール値をセッションに初期化（保存済みの値を優先）
-        cfg_title_scales = cfg.get("LAYOUT_TITLE_SCALES", {})
-        cfg_sub_scales   = cfg.get("LAYOUT_SUB_SCALES",   {})
-        cfg_item_scales  = cfg.get("LAYOUT_ITEM_SCALES",  {})
-        ts_key = f"_tpl_ts_{layout_key}"
-        ss_key = f"_tpl_ss_{layout_key}"
-        is_key = f"_tpl_is_{layout_key}"
-        if ts_key not in st.session_state:
-            st.session_state[ts_key] = float(cfg_title_scales.get(layout_key, 1.0))
+        cfg_sub_scales   = cfg.get("LAYOUT_SUB_SCALES",     {})
+        cfg_item_scales  = cfg.get("LAYOUT_ITEM_SCALES",    {})
+        cfg_pad_scales   = cfg.get("LAYOUT_PADDING_SCALES", {})
+        ss_key  = f"_tpl_ss_{layout_key}"
+        is_key  = f"_tpl_is_{layout_key}"
+        pad_key = f"_tpl_pad_{layout_key}"
         if ss_key not in st.session_state:
-            st.session_state[ss_key] = float(cfg_sub_scales.get(layout_key, 1.0))
+            st.session_state[ss_key]  = float(cfg_sub_scales.get(layout_key, 1.0))
         if is_key not in st.session_state:
-            st.session_state[is_key] = float(cfg_item_scales.get(layout_key, 1.0))
+            st.session_state[is_key]  = float(cfg_item_scales.get(layout_key, 1.0))
+        if pad_key not in st.session_state:
+            st.session_state[pad_key] = float(cfg_pad_scales.get(layout_key, 1.0))
 
-        st.divider()
         pv_col, ed_col = st.columns([1.7, 1])
 
         # ── 右：調整パネル ──
         with ed_col:
             target = st.radio("調整対象", target_options, horizontal=True,
                                key=f"_tpl_target_{layout_key}")
-            if target == "タイトル":
-                st.slider("タイトル倍率", 0.5, 2.0, step=0.05, key=ts_key)
+            if target == "余白":
+                st.slider("余白倍率", 0.0, 2.0, step=0.05, key=pad_key,
+                          help="0で余白なし、1で標準、2で倍")
             elif target == "サブ":
                 st.slider("サブ倍率", 0.5, 2.0, step=0.05, key=ss_key)
             elif target == "項目":
                 st.slider("項目倍率", 0.5, 2.0, step=0.05, key=is_key)
+
+            st.caption(f"タイトル倍率は「全体共通設定」で一括管理（現在 {float(st.session_state.get(gts_key, 1.0)):.2f}×）")
 
             st.markdown("**ダミーテキスト**")
             dummy_title = st.text_input("タイトル", value=defaults["title"],
@@ -1016,21 +1192,22 @@ if mode == "Template Editor":
                         dummy_items.append(val.strip())
 
             st.markdown("")
-            if st.button("💾 設定を保存", use_container_width=True, type="primary",
+            if st.button("💾 このレイアウトの設定を保存", use_container_width=True, type="primary",
                          key=f"save_layout_{layout_key}"):
-                title_scales = dict(cfg.get("LAYOUT_TITLE_SCALES", {}))
-                sub_scales   = dict(cfg.get("LAYOUT_SUB_SCALES",   {}))
-                item_scales  = dict(cfg.get("LAYOUT_ITEM_SCALES",  {}))
-                title_scales[layout_key] = float(st.session_state[ts_key])
-                sub_scales[layout_key]   = float(st.session_state[ss_key])
-                item_scales[layout_key]  = float(st.session_state[is_key])
+                sub_scales  = dict(cfg.get("LAYOUT_SUB_SCALES",     {}))
+                item_scales = dict(cfg.get("LAYOUT_ITEM_SCALES",    {}))
+                pad_scales  = dict(cfg.get("LAYOUT_PADDING_SCALES", {}))
+                sub_scales[layout_key]  = float(st.session_state[ss_key])
+                item_scales[layout_key] = float(st.session_state[is_key])
+                pad_scales[layout_key]  = float(st.session_state[pad_key])
                 ok = _save_overrides({
-                    "LAYOUT_TITLE_SCALES": title_scales,
-                    "LAYOUT_SUB_SCALES":   sub_scales,
-                    "LAYOUT_ITEM_SCALES":  item_scales,
+                    "LAYOUT_SUB_SCALES":     sub_scales,
+                    "LAYOUT_ITEM_SCALES":    item_scales,
+                    "LAYOUT_PADDING_SCALES": pad_scales,
                 })
                 if ok:
                     st.success(f"✅ {layout_key} の設定を保存しました")
+                    st.rerun()
 
         # ── 左：大きなプレビュー ──
         with pv_col:
@@ -1042,11 +1219,23 @@ if mode == "Template Editor":
                 "slide_icon":   defaults.get("icon", ""),
                 "slide_number": "01" if layout_key == "section" else "",
                 "font_scale":   1.0,
-                "_title_scale": float(st.session_state[ts_key]),
+                # ライブプレビュー: スライダー値を渡し、保存前でも反映させる
+                "_title_scale": float(st.session_state.get(gts_key, 1.0)),
                 "_sub_scale":   float(st.session_state[ss_key]),
                 "_item_scale":  float(st.session_state[is_key]),
+                "_pad_scale":   float(st.session_state[pad_key]),
             }
-            html = render_preview_html(preview_seg, show_progress_bar=False)
+            # ライブカラー反映: 一時的に色設定を override したかのように描画
+            # （render 関数は _load_view_settings() を呼ぶので、ここはセッション値を渡せない）
+            # → ライブ反映のため、一時的に上書き保存はせず、cfgのカラーを viewsettings に注入する
+            html = _render_with_overrides(preview_seg, {
+                "TEXT_COLOR_PRIMARY":  st.session_state[tp_key],
+                "TEXT_COLOR_SUB":      st.session_state[tsub_key],
+                "TEXT_COLOR_ACCENT":   st.session_state[tac_key],
+                "BACKGROUND_COLOR":    st.session_state[bg_key],
+                "SHOW_TITLE_BRAND":    bool(st.session_state[sb_key]),
+                "BRAND_TEXT":          st.session_state[bt_key],
+            })
             st.components.v1.html(html, height=620, scrolling=False)
 
     # ═════════════════════════════════════════════════
@@ -1119,16 +1308,12 @@ if mode == "Template Editor":
     # ═════════════════════════════════════════════════
     elif tpl_section == "🎬 動画出力":
         st.header("🎬 動画出力")
+        st.caption("色やタイトル倍率は『🎨 レイアウト』タブの全体共通設定で変更できます。")
         vc1, vc2, vc3 = st.columns(3)
         cfg_fps = vc1.selectbox("FPS", [24, 30, 60],
                                  index=[24,30,60].index(cfg["VIDEO_FPS"]), key="cfg_fps")
         cfg_w = vc2.number_input("幅", 640, 3840, cfg["VIDEO_WIDTH"], 160, key="cfg_w")
         cfg_h = vc3.number_input("高さ", 360, 2160, cfg["VIDEO_HEIGHT"], 90, key="cfg_h")
-
-        vc5, vc6, vc7 = st.columns(3)
-        cfg_bg = vc5.color_picker("背景色", cfg["BACKGROUND_COLOR"], key="cfg_bg")
-        cfg_fg = vc6.color_picker("テキスト色", cfg["FONT_COLOR"], key="cfg_fg")
-        cfg_hl = vc7.color_picker("強調色", cfg["HIGHLIGHT_COLOR"], key="cfg_hl")
 
         cfg_show_sub = st.checkbox("字幕表示（将来実装予定）",
                                     value=cfg.get("SHOW_SUBTITLE", False),
@@ -1147,9 +1332,6 @@ if mode == "Template Editor":
                 "VIDEO_WIDTH": cfg_w,
                 "VIDEO_HEIGHT": cfg_h,
                 "FONT_SIZE": cfg_fontsize,
-                "BACKGROUND_COLOR": cfg_bg,
-                "FONT_COLOR": cfg_fg,
-                "HIGHLIGHT_COLOR": cfg_hl,
                 "SHOW_SUBTITLE": cfg_show_sub,
             })
             if ok:

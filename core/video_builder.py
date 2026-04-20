@@ -148,14 +148,29 @@ def build_props(
         "segments":         converted_segments,
     }
 
-    # config_overrides.json からレイアウト別倍率を読み込んで props に追加
+    # config_overrides.json から見た目の設定を props に反映
     overrides_path = Path("config_overrides.json")
     if overrides_path.exists():
         try:
             overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
-            props["layoutTitleScales"] = overrides.get("LAYOUT_TITLE_SCALES", {})
-            props["layoutSubScales"]   = overrides.get("LAYOUT_SUB_SCALES", {})
-            props["layoutItemScales"]  = overrides.get("LAYOUT_ITEM_SCALES", {})
+            # スケール
+            if "TITLE_SCALE" in overrides:
+                props["titleScale"] = float(overrides["TITLE_SCALE"])
+            props["layoutSubScales"]     = overrides.get("LAYOUT_SUB_SCALES",     {})
+            props["layoutItemScales"]    = overrides.get("LAYOUT_ITEM_SCALES",    {})
+            props["layoutPaddingScales"] = overrides.get("LAYOUT_PADDING_SCALES", {})
+            # ブランド表示
+            props["showTitleBrand"] = bool(overrides.get("SHOW_TITLE_BRAND", False))
+            props["brandText"]      = overrides.get("BRAND_TEXT", "NotebookLM")
+            # 文字色
+            if "TEXT_COLOR_PRIMARY" in overrides:
+                props["textColorPrimary"] = overrides["TEXT_COLOR_PRIMARY"]
+            if "TEXT_COLOR_SUB" in overrides:
+                props["textColorSub"] = overrides["TEXT_COLOR_SUB"]
+            if "TEXT_COLOR_ACCENT" in overrides:
+                props["textColorAccent"] = overrides["TEXT_COLOR_ACCENT"]
+            if "BACKGROUND_COLOR" in overrides:
+                props["backgroundColor"] = overrides["BACKGROUND_COLOR"]
         except Exception:
             pass
 
