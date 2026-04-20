@@ -133,24 +133,10 @@ def _auto_fs(text: str, max_px: float, min_px: float) -> float:
     return max(min_px, round(fs, 1))
 
 
-# レイアウト別フォントスケール倍率（1.0 = デフォルト）
-# config_overrides.json の LAYOUT_FONT_SCALES で上書き可能
-LAYOUT_FONT_SCALES: dict[str, float] = {k: 1.0 for k in LAYOUT_KEYS}
-_lfs_path = Path("config_overrides.json")
-if _lfs_path.exists():
-    try:
-        _lfs_data = json.loads(_lfs_path.read_text(encoding="utf-8"))
-        if "LAYOUT_FONT_SCALES" in _lfs_data:
-            LAYOUT_FONT_SCALES.update(_lfs_data["LAYOUT_FONT_SCALES"])
-    except Exception:
-        pass
-
-
-def _layout_fs(layout: str, text: str, max_px: float, min_px: float,
+def _layout_fs(text: str, max_px: float, min_px: float,
                extra_scale: float = 1.0) -> float:
-    """_auto_fs にレイアウト別スケール × 追加スケールを掛ける"""
-    s = LAYOUT_FONT_SCALES.get(layout, 1.0) * extra_scale
-    return _auto_fs(text, max_px * s, min_px * s)
+    """_auto_fs に要素別スケールを掛ける"""
+    return _auto_fs(text, max_px * extra_scale, min_px * extra_scale)
 
 
 def _get_scales(seg: dict) -> tuple[float, float, float]:
@@ -183,7 +169,7 @@ def _ycard(inner_html: str) -> str:
 
 def _render_title(seg: dict) -> str:
     ts, ss, _ = _get_scales(seg)
-    fs = _layout_fs("title", seg.get("slide_title", ""), 5.2, 2.8, ts)
+    fs = _layout_fs(seg.get("slide_title", ""), 5.2, 2.8, ts)
     sub = seg.get("slide_sub", "")
     sub_fs = round(1.8 * ss, 2)
     sub_html = f'<div style="font-size:{sub_fs}vw;color:#888;margin-top:12px">{sub}</div>' if sub else ""
@@ -202,7 +188,7 @@ def _render_title(seg: dict) -> str:
 
 def _render_question(seg: dict) -> str:
     ts, ss, ist = _get_scales(seg)
-    fs = _layout_fs("question", seg.get("slide_title", ""), 4.2, 2.4, ts)
+    fs = _layout_fs(seg.get("slide_title", ""), 4.2, 2.4, ts)
     icon = seg.get("slide_icon", "") or "？"
     sub = seg.get("slide_sub", "")
     sub_html = f'<div style="font-size:{fs*0.45*ss:.1f}vw;color:#888;margin-top:10px">{sub}</div>' if sub else ""
@@ -229,7 +215,7 @@ def _render_question(seg: dict) -> str:
 
 def _render_section(seg: dict) -> str:
     ts, ss, _ = _get_scales(seg)
-    fs = _layout_fs("section", seg.get("slide_title", ""), 4.0, 2.2, ts)
+    fs = _layout_fs(seg.get("slide_title", ""), 4.0, 2.2, ts)
     num = seg.get("slide_number", "") or "1"
     sub = seg.get("slide_sub", "")
     sub_fs = round(1.6 * ss, 2)
@@ -250,7 +236,7 @@ def _render_section(seg: dict) -> str:
 
 def _render_feature(seg: dict) -> str:
     ts, ss, ist = _get_scales(seg)
-    fs = _layout_fs("feature", seg.get("slide_title", ""), 4.2, 2.4, ts)
+    fs = _layout_fs(seg.get("slide_title", ""), 4.2, 2.4, ts)
     sub_fs = max(1.4, round(fs * 0.45 * ss, 1))
     item_fs = max(1.4, round(fs * 0.45 * ist, 1))
     icon = seg.get("slide_icon", "")
@@ -280,8 +266,8 @@ def _render_split(seg: dict) -> str:
     items = seg.get("slide_items", [])
     if len(items) < 2:
         items = [seg.get("slide_title", ""), seg.get("slide_sub", "") or ""]
-    h_fs = _layout_fs("split", seg.get("slide_title", ""), 2.6, 1.6, ts)
-    i_fs = _layout_fs("split", items[0], 1.9, 1.3, ist)
+    h_fs = _layout_fs(seg.get("slide_title", ""), 2.6, 1.6, ts)
+    i_fs = _layout_fs(items[0], 1.9, 1.3, ist)
     icons = ["📊", "📄"]
     cards = ""
     for idx, it in enumerate(items[:2]):
@@ -301,8 +287,8 @@ def _render_flow(seg: dict) -> str:
     items = seg.get("slide_items", [])
     if len(items) < 2:
         items = [seg.get("slide_title", ""), "確認", "完了"]
-    h_fs = _layout_fs("flow", seg.get("slide_title", ""), 2.6, 1.6, ts)
-    i_fs = _layout_fs("flow", items[0], 1.8, 1.2, ist)
+    h_fs = _layout_fs(seg.get("slide_title", ""), 2.6, 1.6, ts)
+    i_fs = _layout_fs(items[0], 1.8, 1.2, ist)
     steps = ""
     for idx, it in enumerate(items[:3]):
         steps += (f'<div style="background:#fff;border-radius:10px;border:1.5px solid #111;'
@@ -325,7 +311,7 @@ def _render_timeline(seg: dict) -> str:
     items = seg.get("slide_items", [])
     if len(items) < 2:
         items = ["2019年: 開始", "2025年: 移行", "2027年: 完全適用"]
-    h_fs = _layout_fs("timeline", seg.get("slide_title", ""), 2.6, 1.6, ts)
+    h_fs = _layout_fs(seg.get("slide_title", ""), 2.6, 1.6, ts)
     n = min(len(items), 4)
     label_fs = round(1.9 * ist, 2)
     desc_fs  = round(1.1 * ist, 2)
@@ -359,8 +345,8 @@ def _render_bullets(seg: dict) -> str:
     items = seg.get("slide_items", [])
     if not items:
         items = [seg.get("slide_sub", "")] if seg.get("slide_sub") else []
-    h_fs = _layout_fs("bullets", seg.get("slide_title", ""), 3.2, 2.1, ts)
-    i_fs = _layout_fs("bullets", items[0] if items else "", 2.0, 1.3, ist)
+    h_fs = _layout_fs(seg.get("slide_title", ""), 3.2, 2.1, ts)
+    i_fs = _layout_fs(items[0] if items else "", 2.0, 1.3, ist)
     bullets = ""
     for it in items[:4]:
         bullets += (f'<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">'
@@ -375,20 +361,24 @@ def _render_bullets(seg: dict) -> str:
     </div>{BAR_HTML}"""
 
 
+_CARD_NUM_RE = re.compile(r'^\d+[:：]\s*')
+
+
 def _render_cards(seg: dict) -> str:
     ts, _, ist = _get_scales(seg)
     items = seg.get("slide_items", [])
     if len(items) < 3:
         return _render_feature(seg)
-    h_fs = _layout_fs("cards", seg.get("slide_title", ""), 3.0, 1.8, ts)
+    h_fs = _layout_fs(seg.get("slide_title", ""), 3.0, 1.8, ts)
     COLORS = ["#DBEAFE", "#FEF3C0", "#D1FAE5", "#FDE2E2", "#E8DAEF", "#FCE4EC"]
     BORDERS = ["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6", "#EC4899"]
     cards = ""
     for idx, it in enumerate(items[:6]):
-        parts = it.split(":", 1) if ":" in it else it.split("：", 1) if "：" in it else [it, ""]
+        cleaned = _CARD_NUM_RE.sub("", it)
+        parts = cleaned.split(":", 1) if ":" in cleaned else cleaned.split("：", 1) if "：" in cleaned else [cleaned, ""]
         title_part = parts[0].strip()
         desc_part  = parts[1].strip() if len(parts) > 1 else ""
-        i_fs = _layout_fs("cards", title_part, 1.8, 1.3, ist)
+        i_fs = _layout_fs(title_part, 1.8, 1.3, ist)
         num = str(idx + 1).zfill(2)
         bg = COLORS[idx % len(COLORS)]
         border = BORDERS[idx % len(BORDERS)]
@@ -420,33 +410,41 @@ RENDERERS = {
 }
 
 
-def render_preview_html(seg: dict, height: int = 280) -> str:
+def render_preview_html(seg: dict, show_progress_bar: bool = True) -> str:
     """スライドプレビューのHTMLを生成
     1920×1080 固定サイズで描画し、JavaScript で縮小表示する。
     vw 単位は px に一括変換してから出力する。
-    slide_css → 自由記述CSSをスライド内に注入
+    show_progress_bar=False で黄色プログレスバー（Remotion再生用）を除去。
     """
     layout = seg.get("slide_layout", "feature")
     renderer = RENDERERS.get(layout, _render_feature)
     body = renderer(seg)
     # vw → px 変換（1920px基準）
     body = _vw_to_px(body)
-    custom_css = seg.get("slide_css", "")
-    extra_css = f"<style>.slide {{ {custom_css} }}</style>" if custom_css else ""
+    if not show_progress_bar:
+        body = body.replace(BAR_HTML, "")
 
     return (
-        f"<html><head><style>{PREVIEW_CSS}</style>{extra_css}</head>"
+        f"<html><head><style>{PREVIEW_CSS}"
+        f"html,body{{width:100%;height:100%;}}"
+        f"body{{display:flex;align-items:center;justify-content:center;background:transparent;}}"
+        f".scale-wrap{{flex:0 0 auto;}}"
+        f"</style></head>"
         f'<body><div class="scale-wrap" id="sw">'
         f'<div class="slide">{body}</div>'
         f'</div>'
         f'<script>'
         f'(function(){{'
         f'var sw=document.getElementById("sw");'
+        f'function fit(){{'
         f'var w=document.documentElement.clientWidth||window.innerWidth;'
-        f'var s=Math.min(w/1920,1);'
+        f'var h=document.documentElement.clientHeight||window.innerHeight;'
+        f'var s=Math.min(w/1920,h/1080);'
         f'sw.style.transform="scale("+s+")";'
-        f'sw.style.width=w+"px";'
+        f'sw.style.width=Math.ceil(1920*s)+"px";'
         f'sw.style.height=Math.ceil(1080*s)+"px";'
+        f'}}'
+        f'fit();window.addEventListener("resize",fit);'
         f'}})();'
         f'</script>'
         f'</body></html>'
@@ -757,7 +755,6 @@ def load_json(data):
         s.setdefault("slide_icon",    "")
         s.setdefault("slide_number",  "")
         s.setdefault("font_scale",    1.0)
-        s.setdefault("slide_css",     "")
     return segs
 
 if load_btn or (uploaded and not st.session_state.loaded):
@@ -801,9 +798,21 @@ if save_merged_btn and st.session_state.segments:
 # ═══════════════════════════════════════════════════════
 if mode == "Template Editor":
     st.title("🎛️ Template Editor")
-    st.caption("VOICEVOX・動画出力・レイアウト別デザイン設定をまとめて管理します。")
+    st.caption("レイアウトごとのデザイン、VOICEVOX、動画出力の設定を管理します。")
 
     _OVERRIDES_FILE = Path("config_overrides.json")
+
+    # プライマリボタンを黄色アクセントに（タブ・保存ボタン共通）
+    st.markdown("""
+    <style>
+    div[data-testid="stButton"] > button[kind="primary"] {
+        background-color: #FBCB3E !important;
+        color: #111 !important;
+        border-color: #111 !important;
+        font-weight: 700 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     # ── VOICEVOX キャラクター名一覧 ──────────────────────
     _SPEAKER_FALLBACK = [
@@ -860,7 +869,6 @@ if mode == "Template Editor":
             "VIDEO_FPS": 30, "VIDEO_WIDTH": 1920, "VIDEO_HEIGHT": 1080,
             "BACKGROUND_COLOR": "#FFFFFF", "FONT_COLOR": "#000000",
             "HIGHLIGHT_COLOR": "#000000", "FONT_SIZE": 64,
-            "LAYOUT_FONT_SCALES":  {k: 1.0 for k in LAYOUT_KEYS},
             "LAYOUT_TITLE_SCALES": {k: 1.0 for k in LAYOUT_KEYS},
             "LAYOUT_SUB_SCALES":   {k: 1.0 for k in LAYOUT_KEYS},
             "LAYOUT_ITEM_SCALES":  {k: 1.0 for k in LAYOUT_KEYS},
@@ -869,6 +877,8 @@ if mode == "Template Editor":
         if _OVERRIDES_FILE.exists():
             try:
                 overrides = json.loads(_OVERRIDES_FILE.read_text(encoding="utf-8"))
+                # 互換性: 旧 LAYOUT_FONT_SCALES はファイルには残すが挙動には反映しない
+                overrides.pop("LAYOUT_FONT_SCALES", None)
                 defaults.update(overrides)
             except Exception:
                 pass
@@ -876,67 +886,25 @@ if mode == "Template Editor":
 
     cfg = _current_cfg()
 
-    # ── 🔊 VOICEVOX 音声 ────────────────────────────────
-    st.header("🔊 VOICEVOX 音声")
-    cfg_speakers = cfg["VOICEVOX_SPEAKERS"]
+    def _save_overrides(updates: dict) -> bool:
+        """既存ファイルを読み込んで updates をマージし書き戻す（旧キーは保持）"""
+        existing = {}
+        if _OVERRIDES_FILE.exists():
+            try:
+                existing = json.loads(_OVERRIDES_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        merged = {**existing, **updates}
+        try:
+            _OVERRIDES_FILE.write_text(
+                json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            return True
+        except Exception as e:
+            st.error(f"保存エラー: {e}")
+            return False
 
-    st.markdown("**話者キャラ割り当て**")
-    tc1, tc2, tc3 = st.columns(3)
-    sel_a = tc1.selectbox("話者A", speaker_labels,
-                          index=_speaker_index(int(cfg_speakers.get("A", 3))),
-                          key="cfg_spk_a")
-    cfg_spk_a = speaker_ids[speaker_labels.index(sel_a)]
-    sel_b = tc2.selectbox("話者B", speaker_labels,
-                          index=_speaker_index(int(cfg_speakers.get("B", 2))),
-                          key="cfg_spk_b")
-    cfg_spk_b = speaker_ids[speaker_labels.index(sel_b)]
-    sel_def = tc3.selectbox("デフォルト（unknown）", speaker_labels,
-                            index=_speaker_index(int(cfg.get("VOICEVOX_SPEAKER_ID", 3))),
-                            key="cfg_spk_def")
-    cfg_spk_default = speaker_ids[speaker_labels.index(sel_def)]
-
-    st.markdown("**グローバル音声パラメータ**")
-    gc1, gc2, gc3, gc4 = st.columns(4)
-    cfg_speed = gc1.slider("話速", 0.5, 2.0, float(cfg["VOICEVOX_SPEED"]), 0.05, key="cfg_speed")
-    cfg_inton = gc2.slider("抑揚", 0.5, 2.0, float(cfg["VOICEVOX_INTONATION"]), 0.05, key="cfg_inton")
-    cfg_pitch = gc3.slider("ピッチ", -0.5, 0.5, float(cfg["VOICEVOX_PITCH"]), 0.01, key="cfg_pitch")
-    cfg_vol   = gc4.slider("音量", 0.5, 2.0, float(cfg["VOICEVOX_VOLUME"]), 0.05, key="cfg_vol")
-
-    ac1, ac2 = st.columns(2)
-    with ac1:
-        st.markdown("**話者A 個別設定**")
-        sp_a = cfg.get("VOICEVOX_SPEAKER_PARAMS", {}).get("A", {})
-        cfg_a_speed = st.slider("A: 話速", 0.5, 2.0, float(sp_a.get("speedScale", cfg_speed)), 0.05, key="cfg_a_spd")
-        cfg_a_inton = st.slider("A: 抑揚", 0.5, 2.0, float(sp_a.get("intonationScale", cfg_inton)), 0.05, key="cfg_a_int")
-        cfg_a_pitch = st.slider("A: ピッチ", -0.5, 0.5, float(sp_a.get("pitchScale", 0.0)), 0.01, key="cfg_a_pit")
-    with ac2:
-        st.markdown("**話者B 個別設定**")
-        sp_b = cfg.get("VOICEVOX_SPEAKER_PARAMS", {}).get("B", {})
-        cfg_b_speed = st.slider("B: 話速", 0.5, 2.0, float(sp_b.get("speedScale", cfg_speed)), 0.05, key="cfg_b_spd")
-        cfg_b_inton = st.slider("B: 抑揚", 0.5, 2.0, float(sp_b.get("intonationScale", cfg_inton)), 0.05, key="cfg_b_int")
-        cfg_b_pitch = st.slider("B: ピッチ", -0.5, 0.5, float(sp_b.get("pitchScale", 0.0)), 0.01, key="cfg_b_pit")
-
-    # ── 🎬 動画出力 ──────────────────────────────────────
-    st.divider()
-    st.header("🎬 動画出力")
-    vc1, vc2, vc3 = st.columns(3)
-    cfg_fps = vc1.selectbox("FPS", [24, 30, 60], index=[24,30,60].index(cfg["VIDEO_FPS"]), key="cfg_fps")
-    cfg_w = vc2.number_input("幅", 640, 3840, cfg["VIDEO_WIDTH"], 160, key="cfg_w")
-    cfg_h = vc3.number_input("高さ", 360, 2160, cfg["VIDEO_HEIGHT"], 90, key="cfg_h")
-    vc4, vc5, vc6, vc7 = st.columns(4)
-    cfg_fontsize = vc4.slider("字幕フォントサイズ", 24, 120, cfg["FONT_SIZE"], 4, key="cfg_fs")
-    cfg_bg  = vc5.color_picker("背景色", cfg["BACKGROUND_COLOR"], key="cfg_bg")
-    cfg_fg  = vc6.color_picker("テキスト色", cfg["FONT_COLOR"], key="cfg_fg")
-    cfg_hl  = vc7.color_picker("強調色", cfg["HIGHLIGHT_COLOR"], key="cfg_hl")
-    cfg_show_sub = st.checkbox("字幕表示（将来実装予定）", value=cfg.get("SHOW_SUBTITLE", False), key="cfg_show_sub")
-
-    # ── 🎨 レイアウト別デザイン設定 ──────────────────────
-    st.divider()
-    st.header("🎨 レイアウト別デザイン設定")
-    st.caption("レイアウトごとに文字サイズ倍率を調整し、ダミーテキストでプレビューできます。")
-
-    # レイアウトごとのスライダー表示制御
-    _HAS_TITLE = set(LAYOUT_KEYS)                                       # 全レイアウト
+    # ── レイアウトごとの部位定義 ─────────────────────────
     _HAS_SUB   = {"title", "question", "section", "feature"}
     _HAS_ITEMS = {"question", "feature", "split", "flow", "timeline", "bullets", "cards"}
 
@@ -949,85 +917,115 @@ if mode == "Template Editor":
         "flow":     {"title": "分析の3ステップ", "sub": "", "items": ["データ収集", "分析・比較", "レポート作成"], "icon": "🔄"},
         "timeline": {"title": "会計基準の変遷", "sub": "", "items": ["2019年: 開始", "2025年: 移行", "2027年: 完全適用"], "icon": "📅"},
         "bullets":  {"title": "今日のポイント", "sub": "", "items": ["収益認識の基本", "5つのステップ", "実務での注意点"], "icon": "📝"},
-        "cards":    {"title": "3つのCF分類", "sub": "", "items": ["01: 営業活動CF", "02: 投資活動CF", "03: 財務活動CF"], "icon": "🗂️"},
+        "cards":    {"title": "3つのCF分類", "sub": "",
+                     "items": ["営業活動CF: 本業で得たお金の流れ",
+                               "投資活動CF: 設備投資の流れ",
+                               "財務活動CF: 資金調達の流れ"], "icon": "🗂️"},
     }
 
-    cfg_font_scales  = cfg.get("LAYOUT_FONT_SCALES", {})
-    cfg_title_scales = cfg.get("LAYOUT_TITLE_SCALES", {})
-    cfg_sub_scales   = cfg.get("LAYOUT_SUB_SCALES", {})
-    cfg_item_scales  = cfg.get("LAYOUT_ITEM_SCALES", {})
+    # レイアウトタブ用のラベル（絵文字＋キー）
+    _LAYOUT_TAB_LABEL = {k: f"{info[1].split()[0]} {k}" for k, info in zip(LAYOUT_KEYS, LAYOUTS)}
 
-    new_font_scales:  dict[str, float] = {}
-    new_title_scales: dict[str, float] = {}
-    new_sub_scales:   dict[str, float] = {}
-    new_item_scales:  dict[str, float] = {}
+    # ── セクション切替 ───────────────────────────────────
+    SECTIONS = ["🎨 レイアウト", "🔊 VOICEVOX", "🎬 動画出力"]
+    tpl_section = st.radio("セクション", SECTIONS, horizontal=True,
+                            key="tpl_section_sel", label_visibility="collapsed")
 
-    for layout_key, layout_info in zip(LAYOUT_KEYS, LAYOUTS):
-        emoji_label = layout_info[1]
-        desc = layout_info[2]
-        defaults = _DUMMY_DEFAULTS.get(layout_key, {"title": "サンプル", "sub": "", "items": [], "icon": ""})
-        has_sub  = layout_key in _HAS_SUB
-        has_item = layout_key in _HAS_ITEMS
+    # ═════════════════════════════════════════════════
+    #  レイアウト編集
+    # ═════════════════════════════════════════════════
+    if tpl_section == "🎨 レイアウト":
+        # レイアウトタブ
+        tab_cols = st.columns(len(LAYOUTS))
+        if "tpl_layout" not in st.session_state:
+            st.session_state["tpl_layout"] = "feature"
+        for i, k in enumerate(LAYOUT_KEYS):
+            is_active = (k == st.session_state["tpl_layout"])
+            if tab_cols[i].button(
+                _LAYOUT_TAB_LABEL[k], key=f"tpl_tab_{k}",
+                type="primary" if is_active else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state["tpl_layout"] = k
+                st.rerun()
 
-        with st.container(border=True):
-            st.subheader(f"{emoji_label}  —  {desc}")
+        layout_key = st.session_state["tpl_layout"]
+        defaults = _DUMMY_DEFAULTS.get(layout_key,
+                                        {"title": "サンプル", "sub": "", "items": [], "icon": ""})
 
-            d_col, s_col = st.columns([3, 2])
+        # 調整対象トグルの選択肢を決定
+        target_options = ["タイトル"]
+        if layout_key in _HAS_SUB:
+            target_options.append("サブ")
+        if layout_key in _HAS_ITEMS:
+            target_options.append("項目")
 
-            with d_col:
-                dummy_title = st.text_input("タイトル", value=defaults["title"],
-                                            key=f"tpl_ti_{layout_key}")
-                dummy_sub = ""
-                if has_sub:
-                    dummy_sub = st.text_input("サブテキスト", value=defaults["sub"],
-                                              key=f"tpl_su_{layout_key}")
+        # スケール値をセッションに初期化（保存済みの値を優先）
+        cfg_title_scales = cfg.get("LAYOUT_TITLE_SCALES", {})
+        cfg_sub_scales   = cfg.get("LAYOUT_SUB_SCALES",   {})
+        cfg_item_scales  = cfg.get("LAYOUT_ITEM_SCALES",  {})
+        ts_key = f"_tpl_ts_{layout_key}"
+        ss_key = f"_tpl_ss_{layout_key}"
+        is_key = f"_tpl_is_{layout_key}"
+        if ts_key not in st.session_state:
+            st.session_state[ts_key] = float(cfg_title_scales.get(layout_key, 1.0))
+        if ss_key not in st.session_state:
+            st.session_state[ss_key] = float(cfg_sub_scales.get(layout_key, 1.0))
+        if is_key not in st.session_state:
+            st.session_state[is_key] = float(cfg_item_scales.get(layout_key, 1.0))
 
+        st.divider()
+        pv_col, ed_col = st.columns([1.7, 1])
+
+        # ── 右：調整パネル ──
+        with ed_col:
+            target = st.radio("調整対象", target_options, horizontal=True,
+                               key=f"_tpl_target_{layout_key}")
+            if target == "タイトル":
+                st.slider("タイトル倍率", 0.5, 2.0, step=0.05, key=ts_key)
+            elif target == "サブ":
+                st.slider("サブ倍率", 0.5, 2.0, step=0.05, key=ss_key)
+            elif target == "項目":
+                st.slider("項目倍率", 0.5, 2.0, step=0.05, key=is_key)
+
+            st.markdown("**ダミーテキスト**")
+            dummy_title = st.text_input("タイトル", value=defaults["title"],
+                                         key=f"tpl_ti_{layout_key}")
+            dummy_sub = ""
+            if layout_key in _HAS_SUB:
+                dummy_sub = st.text_input("サブ", value=defaults["sub"],
+                                           key=f"tpl_su_{layout_key}")
+            dummy_items: list[str] = []
+            if layout_key in _HAS_ITEMS:
                 max_items_map = {"cards": 6, "question": 4, "flow": 3, "bullets": 4,
                                  "split": 2, "timeline": 4, "feature": 3}
-                max_items = max_items_map.get(layout_key, 0) if has_item else 0
-                dummy_items = []
-                if max_items > 0:
-                    item_cols = st.columns(min(max_items, 3))
-                    for j in range(max_items):
-                        default_val = defaults["items"][j] if j < len(defaults["items"]) else ""
-                        val = item_cols[j % min(max_items, 3)].text_input(
-                            f"項目{j+1}", value=default_val,
-                            key=f"tpl_it_{layout_key}_{j}")
-                        if val.strip():
-                            dummy_items.append(val.strip())
+                max_items = max_items_map.get(layout_key, 0)
+                for j in range(max_items):
+                    default_val = defaults["items"][j] if j < len(defaults["items"]) else ""
+                    val = st.text_input(f"項目{j+1}", value=default_val,
+                                         key=f"tpl_it_{layout_key}_{j}")
+                    if val.strip():
+                        dummy_items.append(val.strip())
 
-            with s_col:
-                # 全体倍率（常に表示）
-                fs_val = st.slider("全体倍率", 0.5, 2.0,
-                                   float(cfg_font_scales.get(layout_key, 1.0)), 0.05,
-                                   key=f"tpl_fs_{layout_key}")
-                new_font_scales[layout_key] = fs_val
+            st.markdown("")
+            if st.button("💾 設定を保存", use_container_width=True, type="primary",
+                         key=f"save_layout_{layout_key}"):
+                title_scales = dict(cfg.get("LAYOUT_TITLE_SCALES", {}))
+                sub_scales   = dict(cfg.get("LAYOUT_SUB_SCALES",   {}))
+                item_scales  = dict(cfg.get("LAYOUT_ITEM_SCALES",  {}))
+                title_scales[layout_key] = float(st.session_state[ts_key])
+                sub_scales[layout_key]   = float(st.session_state[ss_key])
+                item_scales[layout_key]  = float(st.session_state[is_key])
+                ok = _save_overrides({
+                    "LAYOUT_TITLE_SCALES": title_scales,
+                    "LAYOUT_SUB_SCALES":   sub_scales,
+                    "LAYOUT_ITEM_SCALES":  item_scales,
+                })
+                if ok:
+                    st.success(f"✅ {layout_key} の設定を保存しました")
 
-                # タイトル倍率（常に表示）
-                ts_val = st.slider("タイトル倍率", 0.5, 2.0,
-                                   float(cfg_title_scales.get(layout_key, 1.0)), 0.05,
-                                   key=f"tpl_ts_{layout_key}")
-                new_title_scales[layout_key] = ts_val
-
-                # サブテキスト倍率（該当レイアウトのみ）
-                if has_sub:
-                    ss_val = st.slider("サブテキスト倍率", 0.5, 2.0,
-                                       float(cfg_sub_scales.get(layout_key, 1.0)), 0.05,
-                                       key=f"tpl_ss_{layout_key}")
-                else:
-                    ss_val = 1.0
-                new_sub_scales[layout_key] = ss_val
-
-                # 項目倍率（該当レイアウトのみ）
-                if has_item:
-                    is_val = st.slider("項目倍率", 0.5, 2.0,
-                                       float(cfg_item_scales.get(layout_key, 1.0)), 0.05,
-                                       key=f"tpl_is_{layout_key}")
-                else:
-                    is_val = 1.0
-                new_item_scales[layout_key] = is_val
-
-            # プレビュー: 1920×1080固定描画 + CSS transform 縮小で切れを防止
+        # ── 左：大きなプレビュー ──
+        with pv_col:
             preview_seg = {
                 "slide_layout": layout_key,
                 "slide_title":  dummy_title,
@@ -1036,66 +1034,118 @@ if mode == "Template Editor":
                 "slide_icon":   defaults.get("icon", ""),
                 "slide_number": "01" if layout_key == "section" else "",
                 "font_scale":   1.0,
-                "slide_css":    "",
-                "_title_scale": ts_val,
-                "_sub_scale":   ss_val,
-                "_item_scale":  is_val,
+                "_title_scale": float(st.session_state[ts_key]),
+                "_sub_scale":   float(st.session_state[ss_key]),
+                "_item_scale":  float(st.session_state[is_key]),
             }
-            # 全体倍率は LAYOUT_FONT_SCALES を一時的に上書きしてプレビューに反映
-            _saved = LAYOUT_FONT_SCALES.get(layout_key, 1.0)
-            LAYOUT_FONT_SCALES[layout_key] = fs_val
-            html = render_preview_html(preview_seg)
-            LAYOUT_FONT_SCALES[layout_key] = _saved
-            st.components.v1.html(html, height=280, scrolling=False)
+            html = render_preview_html(preview_seg, show_progress_bar=False)
+            st.components.v1.html(html, height=560, scrolling=False)
 
-    # ── 💾 設定を保存 ────────────────────────────────────
-    st.divider()
-    if st.button("💾 設定を保存", use_container_width=True, type="primary", key="save_cfg"):
-        existing = {}
-        if _OVERRIDES_FILE.exists():
-            try:
-                existing = json.loads(_OVERRIDES_FILE.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+    # ═════════════════════════════════════════════════
+    #  VOICEVOX 設定
+    # ═════════════════════════════════════════════════
+    elif tpl_section == "🔊 VOICEVOX":
+        st.header("🔊 VOICEVOX 音声")
+        cfg_speakers = cfg["VOICEVOX_SPEAKERS"]
 
-        new_cfg = {
-            **existing,
-            "VOICEVOX_SPEAKER_ID": cfg_spk_default,
-            "VOICEVOX_SPEAKERS": {
-                "A": cfg_spk_a, "B": cfg_spk_b, "unknown": cfg_spk_default,
-            },
-            "VOICEVOX_SPEED": cfg_speed,
-            "VOICEVOX_INTONATION": cfg_inton,
-            "VOICEVOX_PITCH": cfg_pitch,
-            "VOICEVOX_VOLUME": cfg_vol,
-            "VOICEVOX_SPEAKER_PARAMS": {
-                "A": {"speedScale": cfg_a_speed, "intonationScale": cfg_a_inton,
-                      "pitchScale": cfg_a_pitch},
-                "B": {"speedScale": cfg_b_speed, "intonationScale": cfg_b_inton,
-                      "pitchScale": cfg_b_pitch},
-            },
-            "LAYOUT_FONT_SCALES":  new_font_scales,
-            "LAYOUT_TITLE_SCALES": new_title_scales,
-            "LAYOUT_SUB_SCALES":   new_sub_scales,
-            "LAYOUT_ITEM_SCALES":  new_item_scales,
-            "SHOW_SUBTITLE": cfg_show_sub,
-            "VIDEO_FPS": cfg_fps,
-            "VIDEO_WIDTH": cfg_w,
-            "VIDEO_HEIGHT": cfg_h,
-            "FONT_SIZE": cfg_fontsize,
-            "BACKGROUND_COLOR": cfg_bg,
-            "FONT_COLOR": cfg_fg,
-            "HIGHLIGHT_COLOR": cfg_hl,
-        }
-        try:
-            _OVERRIDES_FILE.write_text(
-                json.dumps(new_cfg, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            LAYOUT_FONT_SCALES.update(new_font_scales)
-            st.success("✅ config_overrides.json に保存しました")
-            st.caption("フォントサイズはプレビューに即反映。音声・動画設定は次回パイプライン実行から反映。")
-        except Exception as e:
-            st.error(f"保存エラー: {e}")
+        st.markdown("**話者キャラ割り当て**")
+        tc1, tc2, tc3 = st.columns(3)
+        sel_a = tc1.selectbox("話者A", speaker_labels,
+                              index=_speaker_index(int(cfg_speakers.get("A", 3))),
+                              key="cfg_spk_a")
+        cfg_spk_a = speaker_ids[speaker_labels.index(sel_a)]
+        sel_b = tc2.selectbox("話者B", speaker_labels,
+                              index=_speaker_index(int(cfg_speakers.get("B", 2))),
+                              key="cfg_spk_b")
+        cfg_spk_b = speaker_ids[speaker_labels.index(sel_b)]
+        sel_def = tc3.selectbox("デフォルト（unknown）", speaker_labels,
+                                index=_speaker_index(int(cfg.get("VOICEVOX_SPEAKER_ID", 3))),
+                                key="cfg_spk_def")
+        cfg_spk_default = speaker_ids[speaker_labels.index(sel_def)]
+
+        st.markdown("**グローバル音声パラメータ**")
+        gc1, gc2, gc3, gc4 = st.columns(4)
+        cfg_speed = gc1.slider("話速", 0.5, 2.0, float(cfg["VOICEVOX_SPEED"]), 0.05, key="cfg_speed")
+        cfg_inton = gc2.slider("抑揚", 0.5, 2.0, float(cfg["VOICEVOX_INTONATION"]), 0.05, key="cfg_inton")
+        cfg_pitch = gc3.slider("ピッチ", -0.5, 0.5, float(cfg["VOICEVOX_PITCH"]), 0.01, key="cfg_pitch")
+        cfg_vol   = gc4.slider("音量", 0.5, 2.0, float(cfg["VOICEVOX_VOLUME"]), 0.05, key="cfg_vol")
+
+        ac1, ac2 = st.columns(2)
+        with ac1:
+            st.markdown("**話者A 個別設定**")
+            sp_a = cfg.get("VOICEVOX_SPEAKER_PARAMS", {}).get("A", {})
+            cfg_a_speed = st.slider("A: 話速", 0.5, 2.0, float(sp_a.get("speedScale", cfg_speed)), 0.05, key="cfg_a_spd")
+            cfg_a_inton = st.slider("A: 抑揚", 0.5, 2.0, float(sp_a.get("intonationScale", cfg_inton)), 0.05, key="cfg_a_int")
+            cfg_a_pitch = st.slider("A: ピッチ", -0.5, 0.5, float(sp_a.get("pitchScale", 0.0)), 0.01, key="cfg_a_pit")
+        with ac2:
+            st.markdown("**話者B 個別設定**")
+            sp_b = cfg.get("VOICEVOX_SPEAKER_PARAMS", {}).get("B", {})
+            cfg_b_speed = st.slider("B: 話速", 0.5, 2.0, float(sp_b.get("speedScale", cfg_speed)), 0.05, key="cfg_b_spd")
+            cfg_b_inton = st.slider("B: 抑揚", 0.5, 2.0, float(sp_b.get("intonationScale", cfg_inton)), 0.05, key="cfg_b_int")
+            cfg_b_pitch = st.slider("B: ピッチ", -0.5, 0.5, float(sp_b.get("pitchScale", 0.0)), 0.01, key="cfg_b_pit")
+
+        st.divider()
+        if st.button("💾 VOICEVOX 設定を保存", use_container_width=True,
+                     type="primary", key="save_voicevox"):
+            ok = _save_overrides({
+                "VOICEVOX_SPEAKER_ID": cfg_spk_default,
+                "VOICEVOX_SPEAKERS": {
+                    "A": cfg_spk_a, "B": cfg_spk_b, "unknown": cfg_spk_default,
+                },
+                "VOICEVOX_SPEED": cfg_speed,
+                "VOICEVOX_INTONATION": cfg_inton,
+                "VOICEVOX_PITCH": cfg_pitch,
+                "VOICEVOX_VOLUME": cfg_vol,
+                "VOICEVOX_SPEAKER_PARAMS": {
+                    "A": {"speedScale": cfg_a_speed, "intonationScale": cfg_a_inton,
+                          "pitchScale": cfg_a_pitch},
+                    "B": {"speedScale": cfg_b_speed, "intonationScale": cfg_b_inton,
+                          "pitchScale": cfg_b_pitch},
+                },
+            })
+            if ok:
+                st.success("✅ VOICEVOX 設定を保存しました")
+
+    # ═════════════════════════════════════════════════
+    #  動画出力設定
+    # ═════════════════════════════════════════════════
+    elif tpl_section == "🎬 動画出力":
+        st.header("🎬 動画出力")
+        vc1, vc2, vc3 = st.columns(3)
+        cfg_fps = vc1.selectbox("FPS", [24, 30, 60],
+                                 index=[24,30,60].index(cfg["VIDEO_FPS"]), key="cfg_fps")
+        cfg_w = vc2.number_input("幅", 640, 3840, cfg["VIDEO_WIDTH"], 160, key="cfg_w")
+        cfg_h = vc3.number_input("高さ", 360, 2160, cfg["VIDEO_HEIGHT"], 90, key="cfg_h")
+
+        vc5, vc6, vc7 = st.columns(3)
+        cfg_bg = vc5.color_picker("背景色", cfg["BACKGROUND_COLOR"], key="cfg_bg")
+        cfg_fg = vc6.color_picker("テキスト色", cfg["FONT_COLOR"], key="cfg_fg")
+        cfg_hl = vc7.color_picker("強調色", cfg["HIGHLIGHT_COLOR"], key="cfg_hl")
+
+        cfg_show_sub = st.checkbox("字幕表示（将来実装予定）",
+                                    value=cfg.get("SHOW_SUBTITLE", False),
+                                    key="cfg_show_sub")
+        if cfg_show_sub:
+            cfg_fontsize = st.slider("字幕フォントサイズ", 24, 120,
+                                      int(cfg["FONT_SIZE"]), 4, key="cfg_fs")
+        else:
+            cfg_fontsize = int(cfg.get("FONT_SIZE", 64))
+
+        st.divider()
+        if st.button("💾 動画出力設定を保存", use_container_width=True,
+                     type="primary", key="save_video"):
+            ok = _save_overrides({
+                "VIDEO_FPS": cfg_fps,
+                "VIDEO_WIDTH": cfg_w,
+                "VIDEO_HEIGHT": cfg_h,
+                "FONT_SIZE": cfg_fontsize,
+                "BACKGROUND_COLOR": cfg_bg,
+                "FONT_COLOR": cfg_fg,
+                "HIGHLIGHT_COLOR": cfg_hl,
+                "SHOW_SUBTITLE": cfg_show_sub,
+            })
+            if ok:
+                st.success("✅ 動画出力設定を保存しました")
 
     st.stop()
 
@@ -1197,12 +1247,8 @@ for i in page_indices:
                 selected = st.session_state[ly_key]
                 if selected in LAYOUT_OPTIONS:
                     preview_seg["slide_layout"] = LAYOUT_KEYS[LAYOUT_OPTIONS.index(selected)]
-            # slide_css リアルタイム反映
-            if f"css_{i}" in st.session_state:
-                preview_seg["slide_css"] = st.session_state[f"css_{i}"]
-
             html = render_preview_html(preview_seg)
-            st.components.v1.html(html, height=280, scrolling=False)
+            st.components.v1.html(html, height=360, scrolling=False)
 
             preview_speaker = preview_seg.get("speaker", seg.get("speaker", "unknown"))
             preview_badge = _speaker_badge_html(preview_speaker)
@@ -1287,14 +1333,6 @@ for i in page_indices:
             else:
                 new_items = seg.get("slide_items", [])
 
-            # カスタムCSS（テンプレート微調整用）
-            with st.expander("🎨 カスタムCSS", expanded=False):
-                st.caption("例: `padding: 3% 8%`  `font-size: 3vw`  `background: #f0f0f0`")
-                new_css = st.text_area(
-                    "CSS", value=seg.get("slide_css", ""),
-                    key=f"css_{i}", height=68, label_visibility="collapsed",
-                )
-
             # 自動反映（フィールド変更時に即座にデータ更新）
             changed = False
             if segs[i]["slide_layout"] != new_layout:
@@ -1314,9 +1352,6 @@ for i in page_indices:
                 changed = True
             if segs[i].get("slide_items", []) != new_items:
                 segs[i]["slide_items"] = new_items
-                changed = True
-            if segs[i].get("slide_css", "") != new_css:
-                segs[i]["slide_css"] = new_css
                 changed = True
             if changed:
                 st.session_state.segments = segs

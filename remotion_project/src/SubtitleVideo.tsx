@@ -419,8 +419,12 @@ const LayoutCards: React.FC<LayoutProps> = ({ seg, rf, dur, fps, ts = 1, ss = 1,
         </Appear>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 28, flex: 1, alignContent: "flex-start" }}>
           {items.slice(0, 6).map((item, i) => {
-            const parts = item.split(/[:：]/);
-            const iFs   = scaledAutoFs(parts[0] || item, 36, 28, its);
+            // 旧データ互換: 先頭の "01: " のような数字+コロンを除去してから分割
+            const cleaned = item.replace(/^\d+[:：]\s*/, "");
+            const sepIdx = cleaned.search(/[:：]/);
+            const titlePart = (sepIdx >= 0 ? cleaned.slice(0, sepIdx) : cleaned).trim();
+            const descPart  = sepIdx >= 0 ? cleaned.slice(sepIdx + 1).trim() : "";
+            const iFs = scaledAutoFs(titlePart || cleaned, 36, 28, its);
             const bg = CARD_COLORS[i % CARD_COLORS.length];
             const border = CARD_BORDERS[i % CARD_BORDERS.length];
             return (
@@ -430,8 +434,8 @@ const LayoutCards: React.FC<LayoutProps> = ({ seg, rf, dur, fps, ts = 1, ss = 1,
                     <div style={{ fontFamily: F, fontSize: 52, fontWeight: 900, color: border, marginBottom: 12, opacity: 0.7 }}>
                       {String(i + 1).padStart(2, "0")}
                     </div>
-                    <div style={{ fontFamily: F, fontSize: iFs, fontWeight: 700, color: B, lineHeight: 1.5 }}>{parts[0]?.trim() || item}</div>
-                    {parts[1] && <div style={{ fontFamily: F, fontSize: Math.max(28, Math.round(iFs * 0.8)), color: "#555", marginTop: 8 }}>{parts[1].trim()}</div>}
+                    <div style={{ fontFamily: F, fontSize: iFs, fontWeight: 700, color: B, lineHeight: 1.5 }}>{titlePart}</div>
+                    {descPart && <div style={{ fontFamily: F, fontSize: Math.max(28, Math.round(iFs * 0.8)), color: "#555", marginTop: 8 }}>{descPart}</div>}
                   </div>
                 </div>
               </Appear>
