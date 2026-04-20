@@ -426,25 +426,33 @@ def render_preview_html(seg: dict, show_progress_bar: bool = True) -> str:
 
     return (
         f"<html><head><style>{PREVIEW_CSS}"
-        f"html,body{{width:100%;height:100%;}}"
-        f"body{{display:flex;align-items:center;justify-content:center;background:transparent;}}"
-        f".scale-wrap{{flex:0 0 auto;}}"
+        f"*{{margin:0;padding:0;box-sizing:border-box;}}"
+        f"html,body{{width:100%;height:100%;overflow:hidden;background:transparent;}}"
+        f"#preview-root{{position:fixed;inset:0;display:flex;"
+        f"align-items:center;justify-content:center;}}"
+        f"#scale-wrap{{width:1920px;height:1080px;flex:0 0 auto;"
+        f"transform-origin:center center;}}"
         f"</style></head>"
-        f'<body><div class="scale-wrap" id="sw">'
-        f'<div class="slide">{body}</div>'
+        f'<body><div id="preview-root">'
+        f'<div id="scale-wrap"><div class="slide">{body}</div></div>'
         f'</div>'
         f'<script>'
         f'(function(){{'
-        f'var sw=document.getElementById("sw");'
+        f'var sw=document.getElementById("scale-wrap");'
         f'function fit(){{'
-        f'var w=document.documentElement.clientWidth||window.innerWidth;'
-        f'var h=document.documentElement.clientHeight||window.innerHeight;'
+        f'var w=window.innerWidth||document.documentElement.clientWidth;'
+        f'var h=window.innerHeight||document.documentElement.clientHeight;'
+        f'if(!w||!h)return;'
         f'var s=Math.min(w/1920,h/1080);'
         f'sw.style.transform="scale("+s+")";'
-        f'sw.style.width=Math.ceil(1920*s)+"px";'
-        f'sw.style.height=Math.ceil(1080*s)+"px";'
         f'}}'
-        f'fit();window.addEventListener("resize",fit);'
+        f'fit();'
+        f'window.addEventListener("resize",fit);'
+        f'window.addEventListener("load",fit);'
+        f'if(window.ResizeObserver){{'
+        f'try{{new ResizeObserver(fit).observe(document.documentElement);}}catch(e){{}}'
+        f'}}'
+        f'setTimeout(fit,50);setTimeout(fit,200);setTimeout(fit,800);'
         f'}})();'
         f'</script>'
         f'</body></html>'
@@ -1039,7 +1047,7 @@ if mode == "Template Editor":
                 "_item_scale":  float(st.session_state[is_key]),
             }
             html = render_preview_html(preview_seg, show_progress_bar=False)
-            st.components.v1.html(html, height=560, scrolling=False)
+            st.components.v1.html(html, height=620, scrolling=False)
 
     # ═════════════════════════════════════════════════
     #  VOICEVOX 設定
