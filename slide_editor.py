@@ -885,6 +885,7 @@ with st.sidebar:
         "修正済みテキストから再開":       "--resume",
         "マージ済みから再開":             "--resume-merged",
         "スライド生成済みから再開":       "--resume-slides",
+        "VOICEVOX済みから再開（Remotionのみ）": "--resume-audio",
         "テキストファイルから新規スタート": "--text",
     }
     _PIPELINE_LABELS = list(_PIPELINE_MODES.keys())
@@ -907,6 +908,9 @@ with st.sidebar:
     elif pipeline_opt == "--resume-slides":
         pipe_input = st.text_input("segments_with_slides.json パス",
                                     value="output/segments_with_slides.json", key="pipe_slides")
+    elif pipeline_opt == "--resume-audio":
+        pipe_input = st.text_input("audio_segments.json パス",
+                                    value="output/audio_segments.json", key="pipe_audio_segs")
     else:  # --text
         pipe_input = st.text_input("テキストファイルパス", value="", key="pipe_text")
         pipe_skip_correction = st.checkbox("STEP2（テキスト修正）をスキップ",
