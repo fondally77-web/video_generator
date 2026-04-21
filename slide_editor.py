@@ -930,7 +930,11 @@ with st.sidebar:
         if pipe_preview:
             cmd.append("--preview")
         st.info(f"実行中: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Windows(cp932) でも絵文字や日本語を受け取れるように UTF-8 で読む
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        )
         st.code(result.stdout[-3000:] if result.stdout else "")
         if result.returncode == 0:
             st.success("完了！ 読み込みボタンで結果を確認")

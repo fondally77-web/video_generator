@@ -20,6 +20,14 @@ import sys
 import time
 from pathlib import Path
 
+# Windows の cp932 コンソールでも絵文字を出せるように stdout/stderr を UTF-8 化
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 import requests
 
 # ── 設定 ──────────────────────────────────────────────
