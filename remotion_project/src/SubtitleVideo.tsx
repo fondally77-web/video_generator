@@ -534,7 +534,7 @@ const MultiAudio: React.FC<{ seg: Seg; fps: number; segStart: number }> = ({ seg
   return (
     <>
       {files.map((f, i) => {
-        const from = Math.round(segStart + offset * fps / 1000);
+        const from = Math.round(segStart + cumulativeMs * fps / 1000);
         const wrapped = (
           <Sequence key={i} from={from} layout="none">
             <Audio src={f} />
