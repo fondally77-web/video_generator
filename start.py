@@ -264,6 +264,8 @@ def main():
     p.add_argument("--audio", default=None, help="入力音声ファイル（--run 時に必要）")
     p.add_argument("--target-sec", type=int, default=25, help="目安尺（秒/スライド）")
     p.add_argument("--skip-voicevox", action="store_true", help="VOICEVOX/Remotionをスキップ")
+    p.add_argument("--preview", action="store_true",
+                   help="低解像度(960x540)でレンダリング。確認用に高速化")
     p.add_argument("--check", action="store_true", help="環境チェックのみ（起動しない）")
     a = p.parse_args()
 
@@ -314,6 +316,8 @@ def main():
                "--target-sec", str(a.target_sec)]
         if a.skip_voicevox:
             cmd.append("--skip-voicevox")
+        if a.preview:
+            cmd.append("--preview")
         result = subprocess.run(cmd)
         sys.exit(result.returncode)
     else:

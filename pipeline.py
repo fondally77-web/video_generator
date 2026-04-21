@@ -46,6 +46,7 @@ def run(
     resume_audio=None,
     target_sec=25,
     text=None,
+    preview=False,
 ):
 
     out = Path(OUTPUT_DIR)
@@ -59,7 +60,7 @@ def run(
     if resume_audio:
         print(f"\n[SKIP] Remotionのみ実行: {resume_audio}")
         segs = json.load(open(resume_audio, encoding="utf-8"))
-        _render(segs, audio, output)
+        _render(segs, audio, output, preview=preview)
         return
 
     # ── スライド生成済みからVOICEVOX再開 ──────────────────
@@ -68,7 +69,7 @@ def run(
         slides = json.load(open(resume_slides, encoding="utf-8"))
         print(f"       {len(slides)} スライド読み込み完了")
         if not skip_voicevox:
-            _voicevox_and_render(slides, audio, output, out)
+            _voicevox_and_render(slides, audio, output, out, preview=preview)
         return
 
     # ── マージ済みからスライド生成再開 ────────────────────
@@ -78,7 +79,7 @@ def run(
         print(f"       {len(merged)} スライド読み込み完了")
         slides = _build_and_save_slides(merged, out)
         if not skip_voicevox:
-            _voicevox_and_render(slides, audio, output, out)
+            _voicevox_and_render(slides, audio, output, out, preview=preview)
         return
 
     # ── テキストファイルから開始（Whisperスキップ）────────
@@ -135,7 +136,7 @@ def run(
         return
 
     # ── STEP 5+6: VOICEVOX + Remotion ─────────────────────
-    _voicevox_and_render(slides, audio, output, out)
+    _voicevox_and_render(slides, audio, output, out, preview=preview)
 
 
 def _text_to_segments(text_path: str) -> list[dict]:
@@ -159,15 +160,15 @@ def _build_and_save_slides(merged, out):
     return slides
 
 
-def _voicevox_and_render(slides, audio, output, out):
+def _voicevox_and_render(slides, audio, output, out, preview=False):
     print("\n🔊 STEP 5/6: VOICEVOX 音声合成（話者別ボイス）...")
     audio_segs = generate_audio_segments(slides, out)
-    _render(audio_segs, audio, output)
+    _render(audio_segs, audio, output, preview=preview)
 
 
-def _render(segs, audio, output):
+def _render(segs, audio, output, preview=False):
     print("\n🎬 STEP 6/6: Remotion レンダリング...")
-    out_video = render_video(segs, audio, output)
+    out_video = render_video(segs, audio, output, preview=preview)
     print(f"\n✅ 完了: {out_video}")
 
 
@@ -210,6 +211,11 @@ if __name__ == "__main__":
         default=None,
         help="audio_segments.json から再開（Remotionのみ）",
     )
+    p.add_argument(
+        "--preview",
+        action="store_true",
+        help="低解像度(960x540)でレンダリング。確認用に高速化",
+    )
     a = p.parse_args()
 
     # audio / text どちらかは必須（resume系は除く）
@@ -240,4 +246,5 @@ if __name__ == "__main__":
         a.resume_audio,
         a.target_sec,
         a.text,
+        a.preview,
     )
