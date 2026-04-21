@@ -581,6 +581,75 @@ def _check_server(url: str, path: str = "/health", timeout: float = 2) -> dict |
 
 
 # ═══════════════════════════════════════════════════════
+#  レンダリング済み動画ビューア
+# ═══════════════════════════════════════════════════════
+
+_RESULT_PREVIEW_PATH = Path("output/result_preview.mp4")
+_RESULT_FINAL_PATH   = Path("output/result.mp4")
+
+
+def _format_mtime(path: Path) -> str:
+    """ファイルの更新時刻を '2026-04-21 14:32 (5 分前)' の形式で返す。"""
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return ""
+    abs_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
+    delta = int(time.time() - mtime)
+    if delta < 60:
+        rel = f"{delta} 秒前"
+    elif delta < 3600:
+        rel = f"{delta // 60} 分前"
+    elif delta < 86400:
+        h = delta // 3600
+        m = (delta % 3600) // 60
+        rel = f"{h} 時間 {m} 分前" if m else f"{h} 時間前"
+    else:
+        rel = f"{delta // 86400} 日前"
+    return f"{abs_str} ({rel})"
+
+
+def _render_rendered_video_section() -> None:
+    """Video Preview モードの画面先頭に「📺 レンダリング済み動画」を表示する。"""
+    st.subheader("📺 レンダリング済み動画")
+
+    has_preview = _RESULT_PREVIEW_PATH.exists()
+    has_final   = _RESULT_FINAL_PATH.exists()
+
+    if not has_preview and not has_final:
+        st.info("まだレンダリングされていません。サイドバーの「⚡ パイプライン実行」から生成してください。")
+        st.divider()
+        return
+
+    # 表示切替（両方ある場合のみラジオ）
+    if has_preview and has_final:
+        choice = st.radio(
+            "表示中",
+            ["プレビュー(低解像度)", "本番(1920x1080)"],
+            horizontal=True,
+            key="rendered_video_choice",
+        )
+        target = _RESULT_PREVIEW_PATH if choice.startswith("プレビュー") else _RESULT_FINAL_PATH
+    elif has_preview:
+        target = _RESULT_PREVIEW_PATH
+    else:
+        target = _RESULT_FINAL_PATH
+
+    st.video(str(target))
+
+    # 更新時刻
+    meta_lines = []
+    if has_preview:
+        meta_lines.append(f"プレビュー版: {_format_mtime(_RESULT_PREVIEW_PATH)}")
+    if has_final:
+        meta_lines.append(f"本番版: {_format_mtime(_RESULT_FINAL_PATH)}")
+    if meta_lines:
+        st.caption("  \n".join(meta_lines))
+
+    st.divider()
+
+
+# ═══════════════════════════════════════════════════════
 #  Streamlit UI
 # ═══════════════════════════════════════════════════════
 
@@ -599,6 +668,8 @@ if mode == "Video Preview":
         st.stop()
 
     import base64 as _b64
+
+    _render_rendered_video_section()
 
     segs_vp = st.session_state.segments
     total = len(segs_vp)
@@ -841,6 +912,13 @@ with st.sidebar:
         pipe_skip_correction = st.checkbox("STEP2（テキスト修正）をスキップ",
                                             key="pipe_skip_corr")
 
+    pipe_preview = st.checkbox(
+        "🎬 プレビューモード(低解像度・高速)",
+        value=False,
+        key="pipe_preview",
+        help="960x540 でレンダリング。確認用に数分で完成。",
+    )
+
     target_sec = st.slider("目安尺（秒/スライド）", 10, 40, 25)
 
     if st.button("▶️ パイプライン実行", use_container_width=True,
@@ -849,6 +927,8 @@ with st.sidebar:
                "--target-sec", str(target_sec)]
         if pipeline_opt == "--text" and pipe_skip_correction:
             cmd.append("--skip-correction")
+        if pipe_preview:
+            cmd.append("--preview")
         st.info(f"実行中: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         st.code(result.stdout[-3000:] if result.stdout else "")

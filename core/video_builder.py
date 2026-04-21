@@ -181,9 +181,17 @@ def render_video(
     audio_segments: list[AudioSegment],
     original_audio: str | Path,
     output_path: str | Path | None = None,
+    preview: bool = False,
 ) -> Path:
+    """
+    Remotion を呼んで動画をレンダリングする。
+
+    preview=True のとき、低解像度・高圧縮のプレビュー動画を書き出す
+    （デフォルト出力先は OUTPUT_DIR/result_preview.mp4）。
+    """
     if output_path is None:
-        out = Path(OUTPUT_DIR) / "result.mp4"
+        fname = "result_preview.mp4" if preview else "result.mp4"
+        out = Path(OUTPUT_DIR) / fname
     else:
         out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -237,6 +245,13 @@ def render_video(
             "--browser-executable", chrome_path,
             "--concurrency",        "2",
         ]
+        if preview:
+            cmd += [
+                "--scale",         "0.5",
+                "--jpeg-quality",  "80",
+                "--crf",           "28",
+            ]
+            print("[Remotion] 🎬 プレビューモード (低解像度・高速)")
 
         print(f"[Remotion] レンダリング開始...")
         print(f"  出力先: {out_abs}")
