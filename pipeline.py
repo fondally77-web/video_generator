@@ -22,8 +22,16 @@ pipeline.py — v4（パイプライン順序修正版）
 """
 
 from __future__ import annotations
-import argparse, json
+import argparse, json, sys
 from pathlib import Path
+
+# Windows の cp932 コンソールでも絵文字を出せるように stdout/stderr を UTF-8 化
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 from config import OUTPUT_DIR
 from core.transcriber import transcribe, save_segments
