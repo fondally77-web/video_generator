@@ -923,12 +923,9 @@ with st.sidebar:
         help="960x540 でレンダリング。確認用に数分で完成。",
     )
 
-    target_sec = st.slider("目安尺（秒/スライド）", 10, 40, 25)
-
     if st.button("▶️ パイプライン実行", use_container_width=True,
                   disabled=not pipe_input.strip()):
-        cmd = ["python", "pipeline.py", pipeline_opt, pipe_input,
-               "--target-sec", str(target_sec)]
+        cmd = ["python", "pipeline.py", pipeline_opt, pipe_input]
         if pipeline_opt == "--text" and pipe_skip_correction:
             cmd.append("--skip-correction")
         if pipe_preview:
