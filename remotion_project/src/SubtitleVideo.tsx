@@ -527,14 +527,15 @@ const SlideRouter: React.FC<LayoutProps> = (p) => {
 };
 
 // ─── 複数音声ファイルを連続再生 ────────────────────────
-const MultiAudio: React.FC<{ seg: Seg; fps: number; segStart: number }> = ({ seg, fps, segStart }) => {
+// 親 Sequence (from={sf}) の中で呼ばれる前提なので、from は親からの相対フレーム
+const MultiAudio: React.FC<{ seg: Seg; fps: number }> = ({ seg, fps }) => {
   const files = seg.audio_files ?? [seg.audio_file];
   const durations = seg.run_durations_ms;
   let cumulativeMs = 0;
   return (
     <>
       {files.map((f, i) => {
-        const from = Math.round(segStart + cumulativeMs * fps / 1000);
+        const from = Math.round(cumulativeMs * fps / 1000);
         const wrapped = (
           <Sequence key={i} from={from} layout="none">
             <Audio src={f} />
@@ -616,7 +617,7 @@ export const SubtitleVideo: React.FC<Props> = ({
                   </>
                 )}
                 {/* 複数音声ファイルを順番に再生 */}
-                <MultiAudio seg={seg} fps={fps} segStart={sf} />
+                <MultiAudio seg={seg} fps={fps} />
               </AbsoluteFill>
             </Sequence>
           );
