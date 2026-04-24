@@ -55,6 +55,7 @@ def run(
     target_sec=25,
     text=None,
     preview=False,
+    preview_slides=None,
 ):
 
     out = Path(OUTPUT_DIR)
@@ -68,7 +69,7 @@ def run(
     if resume_audio:
         print(f"\n[SKIP] Remotionのみ実行: {resume_audio}")
         segs = json.load(open(resume_audio, encoding="utf-8"))
-        _render(segs, audio, output, preview=preview)
+        _render(segs, audio, output, preview=preview, preview_slides=preview_slides)
         return
 
     # ── スライド生成済みからVOICEVOX再開 ──────────────────
@@ -77,7 +78,7 @@ def run(
         slides = json.load(open(resume_slides, encoding="utf-8"))
         print(f"       {len(slides)} スライド読み込み完了")
         if not skip_voicevox:
-            _voicevox_and_render(slides, audio, output, out, preview=preview)
+            _voicevox_and_render(slides, audio, output, out, preview=preview, preview_slides=preview_slides)
         return
 
     # ── マージ済みからスライド生成再開 ────────────────────
@@ -87,7 +88,7 @@ def run(
         print(f"       {len(merged)} スライド読み込み完了")
         slides = _build_and_save_slides(merged, out)
         if not skip_voicevox:
-            _voicevox_and_render(slides, audio, output, out, preview=preview)
+            _voicevox_and_render(slides, audio, output, out, preview=preview, preview_slides=preview_slides)
         return
 
     # ── テキストファイルから開始（Whisperスキップ）────────
@@ -144,7 +145,7 @@ def run(
         return
 
     # ── STEP 5+6: VOICEVOX + Remotion ─────────────────────
-    _voicevox_and_render(slides, audio, output, out, preview=preview)
+    _voicevox_and_render(slides, audio, output, out, preview=preview, preview_slides=preview_slides)
 
 
 def _text_to_segments(text_path: str) -> list[dict]:
@@ -168,15 +169,15 @@ def _build_and_save_slides(merged, out):
     return slides
 
 
-def _voicevox_and_render(slides, audio, output, out, preview=False):
+def _voicevox_and_render(slides, audio, output, out, preview=False, preview_slides=None):
     print("\n🔊 STEP 5/6: VOICEVOX 音声合成（話者別ボイス）...")
     audio_segs = generate_audio_segments(slides, out)
-    _render(audio_segs, audio, output, preview=preview)
+    _render(audio_segs, audio, output, preview=preview, preview_slides=preview_slides)
 
 
-def _render(segs, audio, output, preview=False):
+def _render(segs, audio, output, preview=False, preview_slides=None):
     print("\n🎬 STEP 6/6: Remotion レンダリング...")
-    out_video = render_video(segs, audio, output, preview=preview)
+    out_video = render_video(segs, audio, output, preview=preview, preview_slides=preview_slides)
     print(f"\n✅ 完了: {out_video}")
 
 
@@ -224,6 +225,12 @@ if __name__ == "__main__":
         action="store_true",
         help="低解像度(960x540)でレンダリング。確認用に高速化",
     )
+    p.add_argument(
+        "--preview-slides",
+        type=int,
+        default=None,
+        help="先頭 N 枚のスライドだけレンダ。0/未指定で全体",
+    )
     a = p.parse_args()
 
     # audio / text どちらかは必須（resume系は除く）
@@ -255,4 +262,5 @@ if __name__ == "__main__":
         a.target_sec,
         a.text,
         a.preview,
+        a.preview_slides,
     )

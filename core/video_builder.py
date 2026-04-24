@@ -182,12 +182,16 @@ def render_video(
     original_audio: str | Path,
     output_path: str | Path | None = None,
     preview: bool = False,
+    preview_slides: int | None = None,
 ) -> Path:
     """
     Remotion を呼んで動画をレンダリングする。
 
     preview=True のとき、低解像度・高圧縮のプレビュー動画を書き出す
     （デフォルト出力先は OUTPUT_DIR/result_preview.mp4）。
+
+    preview_slides に正の整数を指定すると、先頭 N 枚のスライドだけ
+    レンダリングする（確認用の高速モード）。
     """
     if output_path is None:
         fname = "result_preview.mp4" if preview else "result.mp4"
@@ -195,6 +199,11 @@ def render_video(
     else:
         out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    # 部分レンダ: 先頭 N 枚だけに切り詰める
+    if preview_slides and preview_slides > 0 and preview_slides < len(audio_segments):
+        print(f"[Remotion] 🎞️  部分レンダ: 先頭 {preview_slides} 枚 / 全 {len(audio_segments)} 枚")
+        audio_segments = audio_segments[:preview_slides]
 
     if not REMOTION_PROJECT_DIR.exists():
         raise FileNotFoundError(
@@ -243,7 +252,8 @@ def render_video(
             out_abs,
             "--props",              props_abs,
             "--browser-executable", chrome_path,
-            "--concurrency",        "2",
+            # CPU コアの半分を使う。Remotion の特殊値 "50%" をそのまま渡せる
+            "--concurrency",        "50%",
         ]
         if preview:
             cmd += [

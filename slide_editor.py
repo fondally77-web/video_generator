@@ -922,17 +922,24 @@ with st.sidebar:
         key="pipe_preview",
         help="960x540 でレンダリング。確認用に数分で完成。",
     )
-
-    target_sec = st.slider("目安尺（秒/スライド）", 10, 40, 25)
+    pipe_preview_slides = 0
+    if pipe_preview:
+        pipe_preview_slides = st.number_input(
+            "先頭スライド枚数（0 = 全体）",
+            min_value=0, value=0, step=1,
+            key="pipe_preview_slides",
+            help="プレビューモードで先頭 N 枚だけレンダ。0 で全体。",
+        )
 
     if st.button("▶️ パイプライン実行", use_container_width=True,
                   disabled=not pipe_input.strip()):
-        cmd = ["python", "pipeline.py", pipeline_opt, pipe_input,
-               "--target-sec", str(target_sec)]
+        cmd = ["python", "pipeline.py", pipeline_opt, pipe_input]
         if pipeline_opt == "--text" and pipe_skip_correction:
             cmd.append("--skip-correction")
         if pipe_preview:
             cmd.append("--preview")
+            if pipe_preview_slides and pipe_preview_slides > 0:
+                cmd += ["--preview-slides", str(int(pipe_preview_slides))]
         st.info(f"実行中: {' '.join(cmd)}")
         # Windows(cp932) でも絵文字や日本語を受け取れるように UTF-8 で読む
         result = subprocess.run(

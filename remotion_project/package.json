@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "scripts": { "start": "npx remotion studio" },
   "dependencies": {
-    "remotion": "^4.0.0",
-    "@remotion/cli": "^4.0.0",
-    "@remotion/renderer": "^4.0.0",
+    "remotion": "^4.0.500",
+    "@remotion/cli": "^4.0.500",
+    "@remotion/renderer": "^4.0.500",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
